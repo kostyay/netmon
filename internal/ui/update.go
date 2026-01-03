@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -21,6 +22,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+
+		viewportHeight := msg.Height - headerHeight - footerHeight
+		if viewportHeight < 1 {
+			viewportHeight = 1
+		}
+
+		if !m.ready {
+			m.viewport = viewport.New(msg.Width, viewportHeight)
+			m.ready = true
+		} else {
+			m.viewport.Width = msg.Width
+			m.viewport.Height = viewportHeight
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -32,12 +46,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
+				m.syncViewportToCursor()
 			}
 			return m, nil
 
 		case "down", "j":
 			if m.snapshot != nil && m.cursor < len(m.snapshot.Applications)-1 {
 				m.cursor++
+				m.syncViewportToCursor()
 			}
 			return m, nil
 
@@ -45,6 +61,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Collapse current app
 			if m.snapshot != nil && m.cursor < len(m.snapshot.Applications) {
 				m.expandedApps[m.snapshot.Applications[m.cursor].Name] = false
+				m.syncViewportToCursor()
 			}
 			return m, nil
 
@@ -52,6 +69,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Expand current app
 			if m.snapshot != nil && m.cursor < len(m.snapshot.Applications) {
 				m.expandedApps[m.snapshot.Applications[m.cursor].Name] = true
+				m.syncViewportToCursor()
 			}
 			return m, nil
 
@@ -68,6 +86,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.refreshInterval += RefreshStep
 			}
 			return m, nil
+
+		default:
+			// Pass unhandled keys to viewport for page up/down, mouse scroll, etc.
+			if m.ready {
+				var cmd tea.Cmd
+				m.viewport, cmd = m.viewport.Update(msg)
+				return m, cmd
+			}
 		}
 
 	case TickMsg:
@@ -110,5 +136,24 @@ func (m Model) fetchData() tea.Cmd {
 
 		snapshot, err := m.collector.Collect(ctx)
 		return DataMsg{Snapshot: snapshot, Err: err}
+	}
+}
+
+// syncViewportToCursor ensures the cursor line is visible in the viewport.
+func (m *Model) syncViewportToCursor() {
+	if !m.ready {
+		return
+	}
+
+	lineNumber := m.cursorLinePosition()
+
+	// If cursor is above visible area, scroll up
+	if lineNumber < m.viewport.YOffset {
+		m.viewport.SetYOffset(lineNumber)
+	}
+
+	// If cursor is below visible area, scroll down
+	if lineNumber >= m.viewport.YOffset+m.viewport.Height {
+		m.viewport.SetYOffset(lineNumber - m.viewport.Height + 1)
 	}
 }

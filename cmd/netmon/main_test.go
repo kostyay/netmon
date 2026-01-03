@@ -51,8 +51,8 @@ func TestView_ShowsLoading(t *testing.T) {
 		t.Error("View should return content")
 	}
 
-	// Check for expected UI elements
-	if !containsAny(view, []string{"Loading", "netmon", "Network"}) {
+	// Check for expected UI elements (includes "Initializing" before viewport is ready)
+	if !containsAny(view, []string{"Loading", "Initializing", "netmon", "Network"}) {
 		t.Error("View should contain expected UI elements")
 	}
 }

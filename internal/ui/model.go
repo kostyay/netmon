@@ -3,6 +3,7 @@ package ui
 import (
 	"time"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/kostyay/netmon/internal/collector"
 	"github.com/kostyay/netmon/internal/model"
@@ -37,6 +38,10 @@ type Model struct {
 	// Dimensions
 	width  int
 	height int
+
+	// Viewport for scrollable content
+	viewport viewport.Model
+	ready    bool // true after viewport initialized on first WindowSizeMsg
 }
 
 // NewModel creates a new Model with default settings.
