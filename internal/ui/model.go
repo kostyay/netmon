@@ -17,6 +17,25 @@ const (
 	RefreshStep            = 500 * time.Millisecond
 )
 
+// ViewMode represents the display mode for network connections.
+type ViewMode int
+
+const (
+	ViewGrouped ViewMode = iota
+	ViewTable
+)
+
+// SortColumn represents the column to sort by in table view.
+type SortColumn int
+
+const (
+	SortProcess SortColumn = iota
+	SortProtocol
+	SortLocal
+	SortRemote
+	SortState
+)
+
 // Model is the Bubble Tea model for the network monitor.
 type Model struct {
 	// Data
@@ -42,6 +61,12 @@ type Model struct {
 	// Viewport for scrollable content
 	viewport viewport.Model
 	ready    bool // true after viewport initialized on first WindowSizeMsg
+
+	// Table view state
+	viewMode      ViewMode
+	sortColumn    SortColumn
+	sortAscending bool
+	tableCursor   int
 }
 
 // NewModel creates a new Model with default settings.
@@ -50,6 +75,10 @@ func NewModel() Model {
 		collector:       collector.New(),
 		refreshInterval: DefaultRefreshInterval,
 		expandedApps:    make(map[string]bool),
+		viewMode:        ViewGrouped,
+		sortColumn:      SortProcess,
+		sortAscending:   true,
+		tableCursor:     0,
 	}
 }
 
