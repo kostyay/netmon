@@ -262,6 +262,53 @@ func (m Model) sortConnections(conns []FlatConnection) []FlatConnection {
 	return sorted
 }
 
+// renderTable renders the full table view with headers and sorted connections.
+func (m Model) renderTable() string {
+	var b strings.Builder
+
+	// Render header
+	b.WriteString(m.renderTableHeader())
+	b.WriteString("\n")
+
+	// Get and sort connections
+	conns := m.flattenConnections()
+	conns = m.sortConnections(conns)
+
+	// Render each row
+	for i, fc := range conns {
+		isSelected := i == m.tableCursor
+
+		// Build row content
+		row := fmt.Sprintf("%-14s %-5s %-21s %-21s %-11s",
+			truncateString(fc.ProcessName, 14),
+			fc.Connection.Protocol,
+			truncateAddr(fc.Connection.LocalAddr, 21),
+			truncateAddr(fc.Connection.RemoteAddr, 21),
+			fc.Connection.State,
+		)
+
+		// Add selection marker
+		if isSelected {
+			row = "▶ " + row
+			b.WriteString(SelectedConnStyle.Render(row))
+		} else {
+			row = "  " + row
+			b.WriteString(ConnStyle.Render(row))
+		}
+		b.WriteString("\n")
+	}
+
+	return b.String()
+}
+
+// truncateString truncates a string to maxLen with ellipsis if needed.
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
+}
+
 // renderTableHeader renders the column headers for table view with sort indicators.
 func (m Model) renderTableHeader() string {
 	var b strings.Builder
