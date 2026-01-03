@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/kostyay/netmon/internal/model"
@@ -187,13 +188,19 @@ func truncateAddr(addr string, maxLen int) string {
 	return addr[:maxLen-3] + "..."
 }
 
-// cursorLinePosition calculates which line the currently selected app is on.
+// cursorLinePosition calculates which line the currently selected item is on.
 // This is used to ensure the cursor stays visible when scrolling.
 func (m Model) cursorLinePosition() int {
 	if m.snapshot == nil {
 		return 0
 	}
 
+	// In table view, tableCursor directly corresponds to line position
+	if m.viewMode == ViewTable {
+		return m.tableCursor
+	}
+
+	// In grouped view, calculate position based on expanded apps
 	lineNumber := 0
 	for i := 0; i < m.cursor && i < len(m.snapshot.Applications); i++ {
 		app := m.snapshot.Applications[i]
@@ -221,6 +228,38 @@ func (m Model) flattenConnections() []FlatConnection {
 		}
 	}
 	return flat
+}
+
+// sortConnections sorts a slice of flat connections based on current sort settings.
+func (m Model) sortConnections(conns []FlatConnection) []FlatConnection {
+	// Create a copy to avoid mutating the input
+	sorted := make([]FlatConnection, len(conns))
+	copy(sorted, conns)
+
+	sort.Slice(sorted, func(i, j int) bool {
+		var less bool
+		switch m.sortColumn {
+		case SortProcess:
+			less = sorted[i].ProcessName < sorted[j].ProcessName
+		case SortProtocol:
+			less = sorted[i].Connection.Protocol < sorted[j].Connection.Protocol
+		case SortLocal:
+			less = sorted[i].Connection.LocalAddr < sorted[j].Connection.LocalAddr
+		case SortRemote:
+			less = sorted[i].Connection.RemoteAddr < sorted[j].Connection.RemoteAddr
+		case SortState:
+			less = sorted[i].Connection.State < sorted[j].Connection.State
+		default:
+			less = sorted[i].ProcessName < sorted[j].ProcessName
+		}
+
+		if m.sortAscending {
+			return less
+		}
+		return !less
+	})
+
+	return sorted
 }
 
 // renderTableHeader renders the column headers for table view with sort indicators.
