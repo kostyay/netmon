@@ -609,3 +609,42 @@ func TestCursorPersistence(t *testing.T) {
 		t.Errorf("grouped cursor = %d, should be preserved after switch back", newModel.cursor)
 	}
 }
+
+func TestTableNavigation_DownAtBottom(t *testing.T) {
+	m := createTestModel()
+	m.viewMode = ViewTable
+
+	flatConns := m.flattenConnections()
+	m.tableCursor = len(flatConns) - 1 // Last connection
+
+	msg := tea.KeyMsg{Type: tea.KeyDown}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.tableCursor != len(flatConns)-1 {
+		t.Errorf("tableCursor = %d, should stay at %d (last item)",
+			newModel.tableCursor, len(flatConns)-1)
+	}
+}
+
+func TestUpdate_DataMsg_TableCursorBounds(t *testing.T) {
+	m := createTestModel()
+	m.viewMode = ViewTable
+	m.tableCursor = 10 // Beyond what smaller snapshot would have
+
+	// Smaller snapshot with only 1 connection
+	smallSnapshot := &model.NetworkSnapshot{
+		Applications: []model.Application{
+			{Name: "App1", PIDs: []int32{100}, Connections: []model.Connection{{Protocol: "TCP"}}},
+		},
+	}
+	msg := DataMsg{Snapshot: smallSnapshot, Err: nil}
+
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	flatConns := newModel.flattenConnections()
+	if newModel.tableCursor >= len(flatConns) {
+		t.Errorf("tableCursor = %d, should be < %d", newModel.tableCursor, len(flatConns))
+	}
+}

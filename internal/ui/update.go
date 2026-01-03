@@ -173,9 +173,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Clear error on successful fetch
 		m.lastError = nil
 		m.snapshot = msg.Snapshot
-		// Ensure cursor is valid
+		// Ensure cursor is valid for grouped view
 		if m.snapshot != nil && m.cursor >= len(m.snapshot.Applications) {
 			m.cursor = max(0, len(m.snapshot.Applications)-1)
+		}
+		// Ensure tableCursor is valid for table view
+		flatConns := m.flattenConnections()
+		if len(flatConns) > 0 && m.tableCursor >= len(flatConns) {
+			m.tableCursor = len(flatConns) - 1
+		} else if len(flatConns) == 0 {
+			m.tableCursor = 0
 		}
 		return m, nil
 	}

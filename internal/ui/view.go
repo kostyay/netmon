@@ -186,6 +186,12 @@ func formatPIDs(pids []int32) string {
 }
 
 func truncateAddr(addr string, maxLen int) string {
+	if maxLen < 4 {
+		if len(addr) <= maxLen {
+			return addr
+		}
+		return addr[:maxLen] // Can't fit ellipsis, just truncate
+	}
 	if len(addr) <= maxLen {
 		return addr
 	}
@@ -199,9 +205,11 @@ func (m Model) cursorLinePosition() int {
 		return 0
 	}
 
-	// In table view, tableCursor directly corresponds to line position
+	// In table view, account for header lines
 	if m.viewMode == ViewTable {
-		return m.tableCursor
+		// Account for summary line, blank line, header row, separator
+		const tableHeaderLines = 4
+		return m.tableCursor + tableHeaderLines
 	}
 
 	// In grouped view, calculate position based on expanded apps
@@ -268,6 +276,10 @@ func (m Model) sortConnections(conns []FlatConnection) []FlatConnection {
 
 // renderTable renders the full table view with headers and sorted connections.
 func (m Model) renderTable() string {
+	if m.snapshot == nil {
+		return LoadingStyle.Render("Loading...")
+	}
+
 	var b strings.Builder
 
 	// Get and sort connections
@@ -325,6 +337,12 @@ func (m Model) renderTable() string {
 
 // truncateString truncates a string to maxLen with ellipsis if needed.
 func truncateString(s string, maxLen int) string {
+	if maxLen < 4 {
+		if len(s) <= maxLen {
+			return s
+		}
+		return s[:maxLen] // Can't fit ellipsis, just truncate
+	}
 	if len(s) <= maxLen {
 		return s
 	}

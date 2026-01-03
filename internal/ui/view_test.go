@@ -708,3 +708,40 @@ func TestTableViewSelection(t *testing.T) {
 		t.Errorf("Expected exactly 1 selection marker, got %d", count)
 	}
 }
+
+func TestSortConnections_ByLocalAddress(t *testing.T) {
+	m := Model{
+		sortColumn:    SortLocal,
+		sortAscending: true,
+	}
+
+	conns := []FlatConnection{
+		{ProcessName: "App", Connection: model.Connection{LocalAddr: "192.168.1.100:8080"}},
+		{ProcessName: "App", Connection: model.Connection{LocalAddr: "127.0.0.1:80"}},
+		{ProcessName: "App", Connection: model.Connection{LocalAddr: "10.0.0.1:443"}},
+	}
+
+	result := m.sortConnections(conns)
+
+	if result[0].Connection.LocalAddr != "10.0.0.1:443" {
+		t.Errorf("First item should be 10.0.0.1:443, got %s", result[0].Connection.LocalAddr)
+	}
+}
+
+func TestSortConnections_ByRemoteAddress(t *testing.T) {
+	m := Model{
+		sortColumn:    SortRemote,
+		sortAscending: true,
+	}
+
+	conns := []FlatConnection{
+		{ProcessName: "App", Connection: model.Connection{RemoteAddr: "google.com:443"}},
+		{ProcessName: "App", Connection: model.Connection{RemoteAddr: "api.github.com:443"}},
+	}
+
+	result := m.sortConnections(conns)
+
+	if result[0].Connection.RemoteAddr != "api.github.com:443" {
+		t.Errorf("First item should be api.github.com:443, got %s", result[0].Connection.RemoteAddr)
+	}
+}
