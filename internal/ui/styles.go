@@ -47,4 +47,12 @@ var (
 	ErrorStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FF5555")).
 			Bold(true)
+
+	// Table view styles
+	TableHeaderStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#7D56F4")).
+				Bold(true)
+
+	TableSeparatorStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#4A3B7C"))
 )
