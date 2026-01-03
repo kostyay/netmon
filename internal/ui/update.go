@@ -44,33 +44,56 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
-				m.syncViewportToCursor()
+			if m.viewMode == ViewGrouped {
+				if m.cursor > 0 {
+					m.cursor--
+					m.syncViewportToCursor()
+				}
+			} else {
+				// Table view: use tableCursor
+				if m.tableCursor > 0 {
+					m.tableCursor--
+					m.syncViewportToCursor()
+				}
 			}
 			return m, nil
 
 		case "down", "j":
-			if m.snapshot != nil && m.cursor < len(m.snapshot.Applications)-1 {
-				m.cursor++
-				m.syncViewportToCursor()
+			if m.viewMode == ViewGrouped {
+				if m.snapshot != nil && m.cursor < len(m.snapshot.Applications)-1 {
+					m.cursor++
+					m.syncViewportToCursor()
+				}
+			} else {
+				// Table view: use tableCursor
+				flatConns := m.flattenConnections()
+				if m.tableCursor < len(flatConns)-1 {
+					m.tableCursor++
+					m.syncViewportToCursor()
+				}
 			}
 			return m, nil
 
 		case "left", "h":
-			// Collapse current app
-			if m.snapshot != nil && m.cursor < len(m.snapshot.Applications) {
-				m.expandedApps[m.snapshot.Applications[m.cursor].Name] = false
-				m.syncViewportToCursor()
+			// Collapse current app (grouped view only)
+			if m.viewMode == ViewGrouped {
+				if m.snapshot != nil && m.cursor < len(m.snapshot.Applications) {
+					m.expandedApps[m.snapshot.Applications[m.cursor].Name] = false
+					m.syncViewportToCursor()
+				}
 			}
+			// No-op in table view
 			return m, nil
 
 		case "right", "l", "enter":
-			// Expand current app
-			if m.snapshot != nil && m.cursor < len(m.snapshot.Applications) {
-				m.expandedApps[m.snapshot.Applications[m.cursor].Name] = true
-				m.syncViewportToCursor()
+			// Expand current app (grouped view only)
+			if m.viewMode == ViewGrouped {
+				if m.snapshot != nil && m.cursor < len(m.snapshot.Applications) {
+					m.expandedApps[m.snapshot.Applications[m.cursor].Name] = true
+					m.syncViewportToCursor()
+				}
 			}
+			// No-op in table view
 			return m, nil
 
 		case "+", "=":
