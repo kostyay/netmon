@@ -1,0 +1,481 @@
+package ui
+
+import (
+	"errors"
+	"testing"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/kostyay/netmon/internal/model"
+)
+
+func createTestSnapshot() *model.NetworkSnapshot {
+	return &model.NetworkSnapshot{
+		Applications: []model.Application{
+			{Name: "App1", PIDs: []int32{100}, Connections: []model.Connection{{Protocol: "TCP"}}},
+			{Name: "App2", PIDs: []int32{200}, Connections: []model.Connection{{Protocol: "UDP"}}},
+			{Name: "App3", PIDs: []int32{300}, Connections: []model.Connection{{Protocol: "TCP"}}},
+		},
+		Timestamp: time.Now(),
+	}
+}
+
+func createTestModel() Model {
+	snapshot := createTestSnapshot()
+	return Model{
+		collector:       newMockCollector(snapshot),
+		refreshInterval: DefaultRefreshInterval,
+		snapshot:        snapshot,
+		cursor:          0,
+	}
+}
+
+func TestUpdate_WindowSizeMsg(t *testing.T) {
+	m := createTestModel()
+	msg := tea.WindowSizeMsg{Width: 100, Height: 50}
+
+	updated, cmd := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.width != 100 {
+		t.Errorf("width = %d, want 100", newModel.width)
+	}
+	if newModel.height != 50 {
+		t.Errorf("height = %d, want 50", newModel.height)
+	}
+	if cmd != nil {
+		t.Errorf("cmd should be nil")
+	}
+}
+
+func TestUpdate_KeyMsg_Quit_Q(t *testing.T) {
+	m := createTestModel()
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}}
+
+	updated, cmd := m.Update(msg)
+	newModel := updated.(Model)
+
+	if !newModel.quitting {
+		t.Error("quitting should be true after 'q'")
+	}
+	if cmd == nil {
+		t.Error("cmd should not be nil (should be tea.Quit)")
+	}
+}
+
+func TestUpdate_KeyMsg_Quit_CtrlC(t *testing.T) {
+	m := createTestModel()
+	msg := tea.KeyMsg{Type: tea.KeyCtrlC}
+
+	updated, cmd := m.Update(msg)
+	newModel := updated.(Model)
+
+	if !newModel.quitting {
+		t.Error("quitting should be true after ctrl+c")
+	}
+	if cmd == nil {
+		t.Error("cmd should not be nil")
+	}
+}
+
+func TestUpdate_KeyMsg_Up(t *testing.T) {
+	m := createTestModel()
+	m.cursor = 2
+
+	msg := tea.KeyMsg{Type: tea.KeyUp}
+	updated, cmd := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.cursor != 1 {
+		t.Errorf("cursor = %d, want 1", newModel.cursor)
+	}
+	if cmd != nil {
+		t.Error("cmd should be nil")
+	}
+}
+
+func TestUpdate_KeyMsg_Up_K(t *testing.T) {
+	m := createTestModel()
+	m.cursor = 1
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}}
+	updated, cmd := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.cursor != 0 {
+		t.Errorf("cursor = %d, want 0", newModel.cursor)
+	}
+	if cmd != nil {
+		t.Error("cmd should be nil")
+	}
+}
+
+func TestUpdate_KeyMsg_Up_AtTop(t *testing.T) {
+	m := createTestModel()
+	m.cursor = 0
+
+	msg := tea.KeyMsg{Type: tea.KeyUp}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.cursor != 0 {
+		t.Errorf("cursor = %d, want 0 (should not go negative)", newModel.cursor)
+	}
+}
+
+func TestUpdate_KeyMsg_Down(t *testing.T) {
+	m := createTestModel()
+	m.cursor = 0
+
+	msg := tea.KeyMsg{Type: tea.KeyDown}
+	updated, cmd := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.cursor != 1 {
+		t.Errorf("cursor = %d, want 1", newModel.cursor)
+	}
+	if cmd != nil {
+		t.Error("cmd should be nil")
+	}
+}
+
+func TestUpdate_KeyMsg_Down_J(t *testing.T) {
+	m := createTestModel()
+	m.cursor = 0
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}
+	updated, cmd := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.cursor != 1 {
+		t.Errorf("cursor = %d, want 1", newModel.cursor)
+	}
+	if cmd != nil {
+		t.Error("cmd should be nil")
+	}
+}
+
+func TestUpdate_KeyMsg_Down_AtBottom(t *testing.T) {
+	m := createTestModel()
+	m.cursor = 2 // Last item (3 items total)
+
+	msg := tea.KeyMsg{Type: tea.KeyDown}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.cursor != 2 {
+		t.Errorf("cursor = %d, want 2 (should not exceed bounds)", newModel.cursor)
+	}
+}
+
+func TestUpdate_KeyMsg_Left_Collapse(t *testing.T) {
+	m := createTestModel()
+	m.snapshot.Applications[0].Expanded = true
+
+	msg := tea.KeyMsg{Type: tea.KeyLeft}
+	updated, cmd := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.snapshot.Applications[0].Expanded {
+		t.Error("Application should be collapsed after left key")
+	}
+	if cmd != nil {
+		t.Error("cmd should be nil")
+	}
+}
+
+func TestUpdate_KeyMsg_Left_H(t *testing.T) {
+	m := createTestModel()
+	m.snapshot.Applications[0].Expanded = true
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.snapshot.Applications[0].Expanded {
+		t.Error("Application should be collapsed after 'h' key")
+	}
+}
+
+func TestUpdate_KeyMsg_Right_Expand(t *testing.T) {
+	m := createTestModel()
+	m.snapshot.Applications[0].Expanded = false
+
+	msg := tea.KeyMsg{Type: tea.KeyRight}
+	updated, cmd := m.Update(msg)
+	newModel := updated.(Model)
+
+	if !newModel.snapshot.Applications[0].Expanded {
+		t.Error("Application should be expanded after right key")
+	}
+	if cmd != nil {
+		t.Error("cmd should be nil")
+	}
+}
+
+func TestUpdate_KeyMsg_Right_L(t *testing.T) {
+	m := createTestModel()
+	m.snapshot.Applications[0].Expanded = false
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if !newModel.snapshot.Applications[0].Expanded {
+		t.Error("Application should be expanded after 'l' key")
+	}
+}
+
+func TestUpdate_KeyMsg_Enter_Expand(t *testing.T) {
+	m := createTestModel()
+	m.snapshot.Applications[0].Expanded = false
+
+	msg := tea.KeyMsg{Type: tea.KeyEnter}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if !newModel.snapshot.Applications[0].Expanded {
+		t.Error("Application should be expanded after Enter key")
+	}
+}
+
+func TestUpdate_KeyMsg_Plus_IncreaseRefresh(t *testing.T) {
+	m := createTestModel()
+	m.refreshInterval = 2 * time.Second
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'+'}}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	expected := 2*time.Second - RefreshStep
+	if newModel.refreshInterval != expected {
+		t.Errorf("refreshInterval = %v, want %v", newModel.refreshInterval, expected)
+	}
+}
+
+func TestUpdate_KeyMsg_Minus_DecreaseRefresh(t *testing.T) {
+	m := createTestModel()
+	m.refreshInterval = 2 * time.Second
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'-'}}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	expected := 2*time.Second + RefreshStep
+	if newModel.refreshInterval != expected {
+		t.Errorf("refreshInterval = %v, want %v", newModel.refreshInterval, expected)
+	}
+}
+
+func TestUpdate_KeyMsg_Plus_AtMinInterval(t *testing.T) {
+	m := createTestModel()
+	m.refreshInterval = MinRefreshInterval
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'+'}}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.refreshInterval != MinRefreshInterval {
+		t.Errorf("refreshInterval = %v, should stay at min %v", newModel.refreshInterval, MinRefreshInterval)
+	}
+}
+
+func TestUpdate_KeyMsg_Minus_AtMaxInterval(t *testing.T) {
+	m := createTestModel()
+	m.refreshInterval = MaxRefreshInterval
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'-'}}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.refreshInterval != MaxRefreshInterval {
+		t.Errorf("refreshInterval = %v, should stay at max %v", newModel.refreshInterval, MaxRefreshInterval)
+	}
+}
+
+func TestUpdate_TickMsg_SchedulesNextTick(t *testing.T) {
+	m := createTestModel()
+	msg := TickMsg(time.Now())
+
+	_, cmd := m.Update(msg)
+
+	if cmd == nil {
+		t.Error("TickMsg should return a command (batch of tick + fetch)")
+	}
+}
+
+func TestUpdate_DataMsg_Success(t *testing.T) {
+	m := createTestModel()
+	m.snapshot = nil
+
+	newSnapshot := createTestSnapshot()
+	msg := DataMsg{Snapshot: newSnapshot, Err: nil}
+
+	updated, cmd := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.snapshot == nil {
+		t.Error("snapshot should be set after DataMsg")
+	}
+	if newModel.snapshot.Applications[0].Name != "App1" {
+		t.Error("snapshot should contain correct data")
+	}
+	if cmd != nil {
+		t.Error("cmd should be nil")
+	}
+}
+
+func TestUpdate_DataMsg_Error(t *testing.T) {
+	m := createTestModel()
+	originalSnapshot := m.snapshot
+
+	msg := DataMsg{Snapshot: nil, Err: errors.New("test error")}
+
+	updated, cmd := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.snapshot != originalSnapshot {
+		t.Error("snapshot should remain unchanged on error")
+	}
+	if cmd != nil {
+		t.Error("cmd should be nil")
+	}
+}
+
+func TestUpdate_DataMsg_CursorBounds(t *testing.T) {
+	m := createTestModel()
+	m.cursor = 5 // Out of bounds
+
+	smallSnapshot := &model.NetworkSnapshot{
+		Applications: []model.Application{
+			{Name: "App1", PIDs: []int32{100}, Connections: []model.Connection{{Protocol: "TCP"}}},
+		},
+		Timestamp: time.Now(),
+	}
+	msg := DataMsg{Snapshot: smallSnapshot, Err: nil}
+
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.cursor != 0 {
+		t.Errorf("cursor = %d, should be adjusted to 0 (max index)", newModel.cursor)
+	}
+}
+
+func TestMergeExpandedState_NilOldSnapshot(t *testing.T) {
+	m := Model{snapshot: nil}
+	newSnapshot := createTestSnapshot()
+
+	m.mergeExpandedState(newSnapshot)
+
+	// Should not panic and newSnapshot should be unchanged
+	if newSnapshot.Applications[0].Expanded {
+		t.Error("expanded state should remain false when old snapshot is nil")
+	}
+}
+
+func TestMergeExpandedState_NilNewSnapshot(t *testing.T) {
+	m := createTestModel()
+	m.snapshot.Applications[0].Expanded = true
+
+	m.mergeExpandedState(nil)
+
+	// Should not panic
+	if !m.snapshot.Applications[0].Expanded {
+		t.Error("old snapshot should be unchanged")
+	}
+}
+
+func TestMergeExpandedState_PreservesExpanded(t *testing.T) {
+	m := createTestModel()
+	m.snapshot.Applications[0].Expanded = true
+	m.snapshot.Applications[1].Expanded = false
+	m.snapshot.Applications[2].Expanded = true
+
+	newSnapshot := createTestSnapshot()
+	m.mergeExpandedState(newSnapshot)
+
+	if !newSnapshot.Applications[0].Expanded {
+		t.Error("App1 should preserve expanded state")
+	}
+	if newSnapshot.Applications[1].Expanded {
+		t.Error("App2 should preserve non-expanded state")
+	}
+	if !newSnapshot.Applications[2].Expanded {
+		t.Error("App3 should preserve expanded state")
+	}
+}
+
+func TestMergeExpandedState_NewAppNotExpanded(t *testing.T) {
+	m := createTestModel()
+	m.snapshot.Applications[0].Expanded = true
+
+	newSnapshot := &model.NetworkSnapshot{
+		Applications: []model.Application{
+			{Name: "App1", Expanded: false},
+			{Name: "NewApp", Expanded: false}, // New app not in old snapshot
+		},
+	}
+
+	m.mergeExpandedState(newSnapshot)
+
+	if !newSnapshot.Applications[0].Expanded {
+		t.Error("App1 should get expanded state from old snapshot")
+	}
+	if newSnapshot.Applications[1].Expanded {
+		t.Error("NewApp should remain non-expanded")
+	}
+}
+
+func TestUpdate_NilSnapshot_Down(t *testing.T) {
+	m := Model{
+		collector:       newMockCollector(nil),
+		refreshInterval: DefaultRefreshInterval,
+		snapshot:        nil,
+		cursor:          0,
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyDown}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.cursor != 0 {
+		t.Errorf("cursor = %d, should stay at 0 with nil snapshot", newModel.cursor)
+	}
+}
+
+func TestUpdate_NilSnapshot_Collapse(t *testing.T) {
+	m := Model{
+		collector:       newMockCollector(nil),
+		refreshInterval: DefaultRefreshInterval,
+		snapshot:        nil,
+		cursor:          0,
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyLeft}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	// Should not panic
+	if newModel.snapshot != nil {
+		t.Error("snapshot should remain nil")
+	}
+}
+
+func TestUpdate_NilSnapshot_Expand(t *testing.T) {
+	m := Model{
+		collector:       newMockCollector(nil),
+		refreshInterval: DefaultRefreshInterval,
+		snapshot:        nil,
+		cursor:          0,
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyRight}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	// Should not panic
+	if newModel.snapshot != nil {
+		t.Error("snapshot should remain nil")
+	}
+}
