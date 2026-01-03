@@ -1,4 +1,4 @@
-.PHONY: build test fmt lint run clean
+.PHONY: build test fmt lint run clean security
 
 build:
 	go build -o bin/netmon ./cmd/netmon
@@ -17,3 +17,9 @@ run:
 
 clean:
 	rm -rf bin/
+
+security:
+	govulncheck ./...
+	gosec ./...
+	trufflehog git file://. --only-verified --fail
+	gitleaks detect --source . -v
