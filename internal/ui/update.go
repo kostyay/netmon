@@ -87,6 +87,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
+		case "v":
+			// Toggle between grouped and table view
+			if m.viewMode == ViewGrouped {
+				m.viewMode = ViewTable
+			} else {
+				m.viewMode = ViewGrouped
+			}
+			return m, nil
+
+		case "1", "2", "3", "4", "5":
+			// Column sorting (only in table view)
+			if m.viewMode == ViewTable {
+				var newColumn SortColumn
+				switch msg.String() {
+				case "1":
+					newColumn = SortProcess
+				case "2":
+					newColumn = SortProtocol
+				case "3":
+					newColumn = SortLocal
+				case "4":
+					newColumn = SortRemote
+				case "5":
+					newColumn = SortState
+				}
+
+				if m.sortColumn == newColumn {
+					// Toggle sort direction
+					m.sortAscending = !m.sortAscending
+				} else {
+					// New column, default to ascending
+					m.sortColumn = newColumn
+					m.sortAscending = true
+				}
+				return m, nil
+			}
+
 		default:
 			// Pass unhandled keys to viewport for page up/down, mouse scroll, etc.
 			if m.ready {
