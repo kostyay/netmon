@@ -3,6 +3,7 @@ package ui
 import "github.com/charmbracelet/lipgloss"
 
 var (
+	// Header and Footer
 	HeaderStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#7D56F4")).
@@ -12,7 +13,40 @@ var (
 			Foreground(lipgloss.Color("#626262")).
 			MarginTop(1)
 
-	TableStyle = lipgloss.NewStyle().
-			BorderStyle(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color("#555555"))
+	// Status bar
+	StatusStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#888888"))
+
+	// Loading and empty states
+	LoadingStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#888888")).
+			Italic(true)
+
+	EmptyStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#888888")).
+			Italic(true)
+
+	// Application rows
+	AppStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF"))
+
+	SelectedAppStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFFFFF")).
+				Background(lipgloss.Color("#7D56F4")).
+				Bold(true)
+
+	// Connection rows
+	ConnStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#AAAAAA"))
+
+	SelectedConnStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#DDDDDD")).
+				Background(lipgloss.Color("#4A3B7C"))
+
+	// Expand/collapse icons
+	ExpandedIconStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#7D56F4"))
+
+	CollapsedIconStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#555555"))
 )
