@@ -442,3 +442,170 @@ func TestUpdate_NilSnapshot_Expand(t *testing.T) {
 		t.Error("snapshot should remain nil")
 	}
 }
+
+func TestViewToggle(t *testing.T) {
+	m := createTestModel()
+
+	// Initially in grouped view
+	if m.viewMode != ViewGrouped {
+		t.Errorf("initial viewMode = %v, want ViewGrouped", m.viewMode)
+	}
+
+	// Press 'v' to switch to table view
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.viewMode != ViewTable {
+		t.Errorf("viewMode = %v, want ViewTable after 'v'", newModel.viewMode)
+	}
+
+	// Press 'v' again to switch back
+	updated, _ = newModel.Update(msg)
+	newModel = updated.(Model)
+
+	if newModel.viewMode != ViewGrouped {
+		t.Errorf("viewMode = %v, want ViewGrouped after second 'v'", newModel.viewMode)
+	}
+}
+
+func TestSortKeyHandlers(t *testing.T) {
+	m := createTestModel()
+	m.viewMode = ViewTable
+
+	tests := []struct {
+		name         string
+		key          rune
+		wantColumn   SortColumn
+		startColumn  SortColumn
+		startAsc     bool
+		expectedAsc  bool
+	}{
+		{"switch to protocol", '2', SortProtocol, SortProcess, true, true},
+		{"switch to local", '3', SortLocal, SortProcess, true, true},
+		{"switch to remote", '4', SortRemote, SortProcess, true, true},
+		{"switch to state", '5', SortState, SortProcess, true, true},
+		{"switch to process", '1', SortProcess, SortState, true, true},
+		{"toggle process desc", '1', SortProcess, SortProcess, true, false},
+		{"toggle process asc", '1', SortProcess, SortProcess, false, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m.sortColumn = tt.startColumn
+			m.sortAscending = tt.startAsc
+
+			msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{tt.key}}
+			updated, _ := m.Update(msg)
+			newModel := updated.(Model)
+
+			if newModel.sortColumn != tt.wantColumn {
+				t.Errorf("sortColumn = %v, want %v", newModel.sortColumn, tt.wantColumn)
+			}
+			if newModel.sortAscending != tt.expectedAsc {
+				t.Errorf("sortAscending = %v, want %v", newModel.sortAscending, tt.expectedAsc)
+			}
+		})
+	}
+}
+
+func TestSortKeysIgnoredInGroupedView(t *testing.T) {
+	m := createTestModel()
+	m.viewMode = ViewGrouped
+	m.sortColumn = SortProcess
+	m.sortAscending = true
+
+	keys := []rune{'1', '2', '3', '4', '5'}
+	for _, key := range keys {
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{key}}
+		updated, _ := m.Update(msg)
+		newModel := updated.(Model)
+
+		if newModel.sortColumn != SortProcess {
+			t.Errorf("key '%c' in grouped view: sortColumn changed to %v", key, newModel.sortColumn)
+		}
+		if newModel.sortAscending != true {
+			t.Errorf("key '%c' in grouped view: sortAscending changed", key)
+		}
+	}
+}
+
+func TestTableNavigation(t *testing.T) {
+	m := createTestModel()
+	m.viewMode = ViewTable
+	m.tableCursor = 0
+
+	// Down in table view
+	msg := tea.KeyMsg{Type: tea.KeyDown}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.tableCursor != 1 {
+		t.Errorf("tableCursor = %d, want 1 after down", newModel.tableCursor)
+	}
+
+	// Up in table view
+	msg = tea.KeyMsg{Type: tea.KeyUp}
+	updated, _ = newModel.Update(msg)
+	newModel = updated.(Model)
+
+	if newModel.tableCursor != 0 {
+		t.Errorf("tableCursor = %d, want 0 after up", newModel.tableCursor)
+	}
+
+	// Verify grouped cursor unchanged
+	if newModel.cursor != 0 {
+		t.Errorf("grouped cursor = %d, should be unchanged", newModel.cursor)
+	}
+}
+
+func TestExpandCollapseIgnoredInTableView(t *testing.T) {
+	m := createTestModel()
+	m.viewMode = ViewTable
+	m.expandedApps["App1"] = true
+
+	// Left should not collapse in table view
+	msg := tea.KeyMsg{Type: tea.KeyLeft}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if !newModel.expandedApps["App1"] {
+		t.Error("left key should not collapse in table view")
+	}
+
+	// Right should not change state
+	m.expandedApps["App2"] = false
+	msg = tea.KeyMsg{Type: tea.KeyRight}
+	updated, _ = m.Update(msg)
+	newModel = updated.(Model)
+
+	if newModel.expandedApps["App2"] {
+		t.Error("right key should not expand in table view")
+	}
+}
+
+func TestCursorPersistence(t *testing.T) {
+	m := createTestModel()
+	m.cursor = 2
+	m.tableCursor = 1
+
+	// Switch to table view
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.cursor != 2 {
+		t.Errorf("grouped cursor = %d, should be preserved", newModel.cursor)
+	}
+	if newModel.tableCursor != 1 {
+		t.Errorf("table cursor = %d, should be preserved", newModel.tableCursor)
+	}
+
+	// Switch back to grouped view
+	updated, _ = newModel.Update(msg)
+	newModel = updated.(Model)
+
+	if newModel.cursor != 2 {
+		t.Errorf("grouped cursor = %d, should be preserved after switch back", newModel.cursor)
+	}
+}
