@@ -426,3 +426,285 @@ func TestRenderConnection_UDP(t *testing.T) {
 		t.Error("Connection should show UDP protocol")
 	}
 }
+
+// Table view rendering tests
+
+func TestRenderTableHeader(t *testing.T) {
+	m := Model{
+		sortColumn:    SortProcess,
+		sortAscending: true,
+		width:         80,
+	}
+
+	result := m.renderTableHeader()
+
+	// Should contain column headers
+	if !strings.Contains(result, "[1]Process") {
+		t.Error("Table header should contain [1]Process")
+	}
+	if !strings.Contains(result, "[2]Proto") {
+		t.Error("Table header should contain [2]Proto")
+	}
+	if !strings.Contains(result, "[3]Local") {
+		t.Error("Table header should contain [3]Local")
+	}
+	if !strings.Contains(result, "[4]Remote") {
+		t.Error("Table header should contain [4]Remote")
+	}
+	if !strings.Contains(result, "[5]State") {
+		t.Error("Table header should contain [5]State")
+	}
+
+	// Should contain ascending indicator for active column
+	if !strings.Contains(result, "▲") {
+		t.Error("Table header should contain ascending indicator")
+	}
+
+	// Should contain separator line
+	if !strings.Contains(result, "─") {
+		t.Error("Table header should contain separator line")
+	}
+}
+
+func TestRenderTableHeader_DescendingSort(t *testing.T) {
+	m := Model{
+		sortColumn:    SortProtocol,
+		sortAscending: false,
+		width:         80,
+	}
+
+	result := m.renderTableHeader()
+
+	if !strings.Contains(result, "▼") {
+		t.Error("Table header should contain descending indicator")
+	}
+}
+
+func TestRenderTable(t *testing.T) {
+	m := Model{
+		snapshot: &model.NetworkSnapshot{
+			Applications: []model.Application{
+				{
+					Name: "Chrome",
+					PIDs: []int32{100},
+					Connections: []model.Connection{
+						{Protocol: "TCP", LocalAddr: "127.0.0.1:8080", RemoteAddr: "10.0.0.1:443", State: "ESTABLISHED"},
+					},
+				},
+				{
+					Name: "Firefox",
+					PIDs: []int32{200},
+					Connections: []model.Connection{
+						{Protocol: "UDP", LocalAddr: "0.0.0.0:53", RemoteAddr: "*", State: "-"},
+					},
+				},
+			},
+		},
+		sortColumn:    SortProcess,
+		sortAscending: true,
+		tableCursor:   0,
+		width:         80,
+	}
+
+	result := m.renderTable()
+
+	// Should contain process names
+	if !strings.Contains(result, "Chrome") {
+		t.Error("Table should contain 'Chrome'")
+	}
+	if !strings.Contains(result, "Firefox") {
+		t.Error("Table should contain 'Firefox'")
+	}
+
+	// Should contain connection details
+	if !strings.Contains(result, "TCP") {
+		t.Error("Table should contain protocol")
+	}
+
+	// Should contain selection marker on first row
+	if !strings.Contains(result, "▶") {
+		t.Error("Table should contain selection marker")
+	}
+
+	// Should contain summary
+	if !strings.Contains(result, "Showing 2 connections") {
+		t.Error("Table should contain connection count summary")
+	}
+}
+
+func TestFlattenConnections(t *testing.T) {
+	m := Model{
+		snapshot: &model.NetworkSnapshot{
+			Applications: []model.Application{
+				{
+					Name: "App1",
+					PIDs: []int32{100},
+					Connections: []model.Connection{
+						{Protocol: "TCP"},
+						{Protocol: "UDP"},
+					},
+				},
+				{
+					Name: "App2",
+					PIDs: []int32{200},
+					Connections: []model.Connection{
+						{Protocol: "TCP"},
+					},
+				},
+			},
+		},
+	}
+
+	result := m.flattenConnections()
+
+	if len(result) != 3 {
+		t.Errorf("flattenConnections() returned %d items, want 3", len(result))
+	}
+
+	// Verify process names are attached
+	if result[0].ProcessName != "App1" || result[1].ProcessName != "App1" {
+		t.Error("First two connections should have ProcessName 'App1'")
+	}
+	if result[2].ProcessName != "App2" {
+		t.Error("Third connection should have ProcessName 'App2'")
+	}
+}
+
+func TestFlattenConnections_NilSnapshot(t *testing.T) {
+	m := Model{snapshot: nil}
+
+	result := m.flattenConnections()
+
+	if result != nil {
+		t.Error("flattenConnections() with nil snapshot should return nil")
+	}
+}
+
+func TestSortConnections_ByProcess(t *testing.T) {
+	m := Model{
+		sortColumn:    SortProcess,
+		sortAscending: true,
+	}
+
+	conns := []FlatConnection{
+		{ProcessName: "Zebra", Connection: model.Connection{Protocol: "TCP"}},
+		{ProcessName: "Alpha", Connection: model.Connection{Protocol: "UDP"}},
+		{ProcessName: "Beta", Connection: model.Connection{Protocol: "TCP"}},
+	}
+
+	result := m.sortConnections(conns)
+
+	if result[0].ProcessName != "Alpha" {
+		t.Errorf("First item should be Alpha, got %s", result[0].ProcessName)
+	}
+	if result[1].ProcessName != "Beta" {
+		t.Errorf("Second item should be Beta, got %s", result[1].ProcessName)
+	}
+	if result[2].ProcessName != "Zebra" {
+		t.Errorf("Third item should be Zebra, got %s", result[2].ProcessName)
+	}
+}
+
+func TestSortConnections_ByProcessDescending(t *testing.T) {
+	m := Model{
+		sortColumn:    SortProcess,
+		sortAscending: false,
+	}
+
+	conns := []FlatConnection{
+		{ProcessName: "Alpha", Connection: model.Connection{}},
+		{ProcessName: "Zebra", Connection: model.Connection{}},
+		{ProcessName: "Beta", Connection: model.Connection{}},
+	}
+
+	result := m.sortConnections(conns)
+
+	if result[0].ProcessName != "Zebra" {
+		t.Errorf("First item should be Zebra (descending), got %s", result[0].ProcessName)
+	}
+}
+
+func TestSortConnections_ByProtocol(t *testing.T) {
+	m := Model{
+		sortColumn:    SortProtocol,
+		sortAscending: true,
+	}
+
+	conns := []FlatConnection{
+		{ProcessName: "App", Connection: model.Connection{Protocol: "UDP"}},
+		{ProcessName: "App", Connection: model.Connection{Protocol: "TCP"}},
+	}
+
+	result := m.sortConnections(conns)
+
+	if result[0].Connection.Protocol != "TCP" {
+		t.Errorf("First item should be TCP, got %s", result[0].Connection.Protocol)
+	}
+}
+
+func TestSortConnections_ByState(t *testing.T) {
+	m := Model{
+		sortColumn:    SortState,
+		sortAscending: true,
+	}
+
+	conns := []FlatConnection{
+		{ProcessName: "App", Connection: model.Connection{State: "TIME_WAIT"}},
+		{ProcessName: "App", Connection: model.Connection{State: "ESTABLISHED"}},
+		{ProcessName: "App", Connection: model.Connection{State: "LISTEN"}},
+	}
+
+	result := m.sortConnections(conns)
+
+	if result[0].Connection.State != "ESTABLISHED" {
+		t.Errorf("First item should be ESTABLISHED, got %s", result[0].Connection.State)
+	}
+}
+
+func TestSortConnections_DoesNotMutateInput(t *testing.T) {
+	m := Model{
+		sortColumn:    SortProcess,
+		sortAscending: true,
+	}
+
+	conns := []FlatConnection{
+		{ProcessName: "Zebra", Connection: model.Connection{}},
+		{ProcessName: "Alpha", Connection: model.Connection{}},
+	}
+
+	m.sortConnections(conns)
+
+	// Original slice should be unchanged
+	if conns[0].ProcessName != "Zebra" {
+		t.Error("sortConnections should not mutate input slice")
+	}
+}
+
+func TestTableViewSelection(t *testing.T) {
+	m := Model{
+		snapshot: &model.NetworkSnapshot{
+			Applications: []model.Application{
+				{
+					Name: "App1",
+					PIDs: []int32{100},
+					Connections: []model.Connection{
+						{Protocol: "TCP", State: "ESTABLISHED"},
+						{Protocol: "UDP", State: "-"},
+					},
+				},
+			},
+		},
+		sortColumn:    SortProcess,
+		sortAscending: true,
+		tableCursor:   1, // Second row selected
+		width:         80,
+	}
+
+	result := m.renderTable()
+
+	// Count occurrences of ▶
+	count := strings.Count(result, "▶")
+	if count != 1 {
+		t.Errorf("Expected exactly 1 selection marker, got %d", count)
+	}
+}

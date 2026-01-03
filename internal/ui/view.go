@@ -56,7 +56,11 @@ func (m Model) View() string {
 	} else if len(m.snapshot.Applications) == 0 {
 		content = EmptyStyle.Render("No network connections found")
 	} else {
-		content = m.renderApplications()
+		if m.viewMode == ViewGrouped {
+			content = m.renderApplications()
+		} else {
+			content = m.renderTable()
+		}
 	}
 
 	// Set content and render viewport
@@ -266,13 +270,31 @@ func (m Model) sortConnections(conns []FlatConnection) []FlatConnection {
 func (m Model) renderTable() string {
 	var b strings.Builder
 
-	// Render header
-	b.WriteString(m.renderTableHeader())
-	b.WriteString("\n")
-
 	// Get and sort connections
 	conns := m.flattenConnections()
 	conns = m.sortConnections(conns)
+
+	// Render summary with sort indicator
+	totalConns := len(conns)
+	sortColumnName := m.sortColumnName()
+	sortIndicator := "▲"
+	if !m.sortAscending {
+		sortIndicator = "▼"
+	}
+	if m.snapshot.SkippedCount > 0 {
+		summary := StatusStyle.Render(fmt.Sprintf("Showing %d connections (%d hidden) | Sorted by %s %s",
+			totalConns, m.snapshot.SkippedCount, sortColumnName, sortIndicator))
+		b.WriteString(summary)
+	} else {
+		summary := StatusStyle.Render(fmt.Sprintf("Showing %d connections | Sorted by %s %s",
+			totalConns, sortColumnName, sortIndicator))
+		b.WriteString(summary)
+	}
+	b.WriteString("\n\n")
+
+	// Render header
+	b.WriteString(m.renderTableHeader())
+	b.WriteString("\n")
 
 	// Render each row
 	for i, fc := range conns {
@@ -307,6 +329,24 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen-3] + "..."
+}
+
+// sortColumnName returns the display name for the current sort column.
+func (m Model) sortColumnName() string {
+	switch m.sortColumn {
+	case SortProcess:
+		return "Process"
+	case SortProtocol:
+		return "Protocol"
+	case SortLocal:
+		return "Local"
+	case SortRemote:
+		return "Remote"
+	case SortState:
+		return "State"
+	default:
+		return "Process"
+	}
 }
 
 // renderTableHeader renders the column headers for table view with sort indicators.
