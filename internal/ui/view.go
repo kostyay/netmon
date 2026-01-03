@@ -13,6 +13,12 @@ const (
 	footerHeight = 2 // margin + controls line
 )
 
+// FlatConnection represents a single connection with its parent process name.
+type FlatConnection struct {
+	ProcessName string
+	Connection  model.Connection
+}
+
 // View renders the UI.
 func (m Model) View() string {
 	if m.quitting {
@@ -58,9 +64,13 @@ func (m Model) View() string {
 	b.WriteString("\n")
 
 	// === FOOTER (fixed at bottom) ===
-	footer := FooterStyle.Render(
-		"↑↓/jk Navigate  ←→/hl Collapse/Expand  +/- Refresh rate  q Quit",
-	)
+	var footerText string
+	if m.viewMode == ViewGrouped {
+		footerText = "↑↓/jk Navigate  ←→/hl Collapse/Expand  v: Table  +/- Refresh  q Quit"
+	} else {
+		footerText = "↑↓/jk Navigate  1-5 Sort  v: Grouped  +/- Refresh  q Quit"
+	}
+	footer := FooterStyle.Render(footerText)
 	b.WriteString(footer)
 
 	return b.String()
@@ -193,4 +203,81 @@ func (m Model) cursorLinePosition() int {
 		}
 	}
 	return lineNumber
+}
+
+// flattenConnections creates a flat slice of all connections with their process names.
+func (m Model) flattenConnections() []FlatConnection {
+	if m.snapshot == nil {
+		return nil
+	}
+
+	var flat []FlatConnection
+	for _, app := range m.snapshot.Applications {
+		for _, conn := range app.Connections {
+			flat = append(flat, FlatConnection{
+				ProcessName: app.Name,
+				Connection:  conn,
+			})
+		}
+	}
+	return flat
+}
+
+// renderTableHeader renders the column headers for table view with sort indicators.
+func (m Model) renderTableHeader() string {
+	var b strings.Builder
+
+	// Column headers with keyboard shortcuts
+	columns := []struct {
+		key    string
+		label  string
+		column SortColumn
+	}{
+		{"1", "Process", SortProcess},
+		{"2", "Proto", SortProtocol},
+		{"3", "Local", SortLocal},
+		{"4", "Remote", SortRemote},
+		{"5", "State", SortState},
+	}
+
+	for i, col := range columns {
+		if i > 0 {
+			b.WriteString("  ")
+		}
+		header := fmt.Sprintf("[%s]%s", col.key, col.label)
+
+		// Add sort indicator if this is the active sort column
+		if m.sortColumn == col.column {
+			if m.sortAscending {
+				header += "▲"
+			} else {
+				header += "▼"
+			}
+		}
+
+		// Apply width padding
+		switch col.column {
+		case SortProcess:
+			header = fmt.Sprintf("%-15s", header)
+		case SortProtocol:
+			header = fmt.Sprintf("%-8s", header)
+		case SortLocal, SortRemote:
+			header = fmt.Sprintf("%-21s", header)
+		case SortState:
+			header = fmt.Sprintf("%-12s", header)
+		}
+
+		b.WriteString(header)
+	}
+
+	headerLine := TableHeaderStyle.Render(b.String())
+
+	// Add separator line
+	availableWidth := m.width
+	if availableWidth == 0 {
+		availableWidth = 80
+	}
+	separator := TableSeparatorStyle.Render(strings.Repeat("─", availableWidth))
+
+	return headerLine + "\n" + separator
 }
