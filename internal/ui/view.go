@@ -23,7 +23,14 @@ func (m Model) View() string {
 	// Status bar (refresh rate)
 	status := StatusStyle.Render(fmt.Sprintf("Refresh: %.1fs  [+/- to adjust]", m.refreshInterval.Seconds()))
 	b.WriteString(status)
-	b.WriteString("\n\n")
+	b.WriteString("\n")
+
+	// Error display
+	if m.lastError != nil {
+		b.WriteString(ErrorStyle.Render(fmt.Sprintf("Error: %s", m.lastError.Error())))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
 
 	// Network data
 	if m.snapshot == nil {
@@ -48,6 +55,17 @@ func (m Model) View() string {
 func (m Model) renderApplications() string {
 	var b strings.Builder
 
+	// Show summary with skipped count if any
+	totalConns := 0
+	for _, app := range m.snapshot.Applications {
+		totalConns += len(app.Connections)
+	}
+	if m.snapshot.SkippedCount > 0 {
+		summary := StatusStyle.Render(fmt.Sprintf("Showing %d connections (%d hidden)", totalConns, m.snapshot.SkippedCount))
+		b.WriteString(summary)
+		b.WriteString("\n\n")
+	}
+
 	for i, app := range m.snapshot.Applications {
 		isSelected := i == m.cursor
 
@@ -57,7 +75,7 @@ func (m Model) renderApplications() string {
 		b.WriteString("\n")
 
 		// Render connections if expanded
-		if app.Expanded {
+		if m.expandedApps[app.Name] {
 			for _, conn := range app.Connections {
 				connLine := m.renderConnection(conn, isSelected)
 				b.WriteString(connLine)
@@ -72,7 +90,7 @@ func (m Model) renderApplications() string {
 func (m Model) renderAppHeader(app model.Application, isSelected bool) string {
 	// Format: ▼ Chrome (3 connections)                PIDs: 1234, 5678
 	expandIcon := "▶"
-	if app.Expanded {
+	if m.expandedApps[app.Name] {
 		expandIcon = "▼"
 	}
 
@@ -82,8 +100,14 @@ func (m Model) renderAppHeader(app model.Application, isSelected bool) string {
 	// Build the line with spacing
 	leftPart := fmt.Sprintf("%s %s %s", expandIcon, app.Name, connCount)
 
-	// Pad to align PIDs on the right (assuming ~60 char width)
-	padding := 50 - len(leftPart)
+	// Use actual width with fallback
+	availableWidth := m.width
+	if availableWidth == 0 {
+		availableWidth = 80 // fallback for default terminal width
+	}
+
+	// Calculate padding to align PIDs on the right
+	padding := availableWidth - len(leftPart) - len(pidsStr) - 4 // 4 for margins
 	if padding < 2 {
 		padding = 2
 	}

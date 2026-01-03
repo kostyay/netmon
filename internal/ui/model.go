@@ -23,8 +23,13 @@ type Model struct {
 	collector collector.Collector
 
 	// UI State
-	cursor   int  // Current selected app index
-	quitting bool
+	cursor       int             // Current selected app index
+	quitting     bool
+	expandedApps map[string]bool // Track expanded state by app name
+
+	// Error tracking
+	lastError     error
+	lastErrorTime time.Time
 
 	// Configuration
 	refreshInterval time.Duration
@@ -39,7 +44,7 @@ func NewModel() Model {
 	return Model{
 		collector:       collector.New(),
 		refreshInterval: DefaultRefreshInterval,
-		snapshot:        nil,
+		expandedApps:    make(map[string]bool),
 	}
 }
 

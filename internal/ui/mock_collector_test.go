@@ -20,8 +20,3 @@ func (m *mockCollector) Collect(ctx context.Context) (*model.NetworkSnapshot, er
 func newMockCollector(snapshot *model.NetworkSnapshot) *mockCollector {
 	return &mockCollector{snapshot: snapshot}
 }
-
-// newMockCollectorWithError creates a mockCollector that returns an error.
-func newMockCollectorWithError(err error) *mockCollector {
-	return &mockCollector{err: err}
-}

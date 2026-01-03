@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -117,13 +118,13 @@ func TestModel_WithMockCollector(t *testing.T) {
 	}
 
 	// Simulate what fetchData() does
-	result, err := m.collector.Collect(nil)
+	result, err := m.collector.Collect(context.Background())
 
 	if err != nil {
 		t.Errorf("Collect() returned error: %v", err)
 	}
 	if result == nil {
-		t.Error("Collect() returned nil snapshot")
+		t.Fatal("Collect() returned nil snapshot")
 	}
 	if len(result.Applications) != 1 {
 		t.Errorf("Expected 1 application, got %d", len(result.Applications))

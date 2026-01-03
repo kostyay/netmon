@@ -26,6 +26,12 @@ func newPlatformCollector() Collector {
 }
 
 func (c *darwinCollector) Collect(ctx context.Context) (*model.NetworkSnapshot, error) {
+	// Clear process cache at the start of each cycle to prevent stale entries
+	// when PIDs are reused by different processes
+	c.cacheMu.Lock()
+	c.processCache = make(map[int32]string)
+	c.cacheMu.Unlock()
+
 	// Get all network connections (TCP and UDP)
 	connections, err := net.ConnectionsWithContext(ctx, "all")
 	if err != nil {
@@ -34,8 +40,14 @@ func (c *darwinCollector) Collect(ctx context.Context) (*model.NetworkSnapshot, 
 
 	// Group connections by process name
 	appMap := make(map[string]*model.Application)
+	skippedCount := 0
 
 	for _, conn := range connections {
+		// Check for context cancellation
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
 		// Skip connections without PID (kernel/system)
 		if conn.Pid == 0 {
 			continue
@@ -44,6 +56,7 @@ func (c *darwinCollector) Collect(ctx context.Context) (*model.NetworkSnapshot, 
 		// Get process name (with caching)
 		name := c.getProcessName(ctx, conn.Pid)
 		if name == "" {
+			skippedCount++
 			continue // Skip if we can't get process name
 		}
 
@@ -51,9 +64,7 @@ func (c *darwinCollector) Collect(ctx context.Context) (*model.NetworkSnapshot, 
 		app, exists := appMap[name]
 		if !exists {
 			app = &model.Application{
-				Name:     name,
-				PIDs:     []int32{},
-				Expanded: false,
+				Name: name,
 			}
 			appMap[name] = app
 		}
@@ -85,6 +96,7 @@ func (c *darwinCollector) Collect(ctx context.Context) (*model.NetworkSnapshot, 
 	snapshot := &model.NetworkSnapshot{
 		Applications: apps,
 		Timestamp:    time.Now(),
+		SkippedCount: skippedCount,
 	}
 	snapshot.SortByConnectionCount()
 
@@ -116,15 +128,15 @@ func (c *darwinCollector) getProcessName(ctx context.Context, pid int32) string 
 	return name
 }
 
-func (c *darwinCollector) getProtocol(connType uint32) string {
+func (c *darwinCollector) getProtocol(connType uint32) model.Protocol {
 	// net.SOCK_STREAM = 1 (TCP), net.SOCK_DGRAM = 2 (UDP)
 	switch connType {
 	case 1:
-		return "TCP"
+		return model.ProtocolTCP
 	case 2:
-		return "UDP"
+		return model.ProtocolUDP
 	default:
-		return "UNK"
+		return model.ProtocolUnknown
 	}
 }
 
@@ -135,11 +147,11 @@ func (c *darwinCollector) formatRemoteAddr(conn net.ConnectionStat) string {
 	return formatAddr(conn.Raddr.IP, conn.Raddr.Port)
 }
 
-func (c *darwinCollector) getState(conn net.ConnectionStat) string {
+func (c *darwinCollector) getState(conn net.ConnectionStat) model.ConnectionState {
 	if conn.Status == "" {
-		return "-" // UDP has no state
+		return model.StateNone // UDP has no state
 	}
-	return conn.Status
+	return model.ConnectionState(conn.Status)
 }
 
 func formatAddr(ip string, port uint32) string {

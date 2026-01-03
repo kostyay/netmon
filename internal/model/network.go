@@ -5,12 +5,32 @@ import (
 	"time"
 )
 
+// Protocol represents a network protocol.
+type Protocol string
+
+const (
+	ProtocolTCP     Protocol = "TCP"
+	ProtocolUDP     Protocol = "UDP"
+	ProtocolUnknown Protocol = "UNK"
+)
+
+// ConnectionState represents a TCP connection state.
+type ConnectionState string
+
+const (
+	StateEstablished ConnectionState = "ESTABLISHED"
+	StateListen      ConnectionState = "LISTEN"
+	StateTimeWait    ConnectionState = "TIME_WAIT"
+	StateCloseWait   ConnectionState = "CLOSE_WAIT"
+	StateNone        ConnectionState = "-"
+)
+
 // Connection represents a single network connection.
 type Connection struct {
-	Protocol   string // TCP or UDP
-	LocalAddr  string // e.g., 127.0.0.1:52341
-	RemoteAddr string // e.g., 142.250.80.46:443 or * for listening
-	State      string // e.g., ESTABLISHED, LISTEN, - for UDP
+	Protocol   Protocol        // TCP or UDP
+	LocalAddr  string          // e.g., 127.0.0.1:52341
+	RemoteAddr string          // e.g., 142.250.80.46:443 or * for listening
+	State      ConnectionState // e.g., ESTABLISHED, LISTEN, - for UDP
 }
 
 // Application represents a grouped set of connections by app name.
@@ -18,7 +38,6 @@ type Application struct {
 	Name        string       // Process name (e.g., Chrome)
 	PIDs        []int32      // All PIDs running this app
 	Connections []Connection // All connections across all PIDs
-	Expanded    bool         // UI state: is this app expanded in tree view
 }
 
 // ConnectionCount returns the number of connections for this application.
@@ -30,6 +49,7 @@ func (a *Application) ConnectionCount() int {
 type NetworkSnapshot struct {
 	Applications []Application
 	Timestamp    time.Time
+	SkippedCount int // Number of connections skipped due to unknown process
 }
 
 // SortByConnectionCount sorts applications by number of connections (descending).

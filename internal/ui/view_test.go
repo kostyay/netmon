@@ -158,18 +158,18 @@ func TestView_WithApplications(t *testing.T) {
 		snapshot: &model.NetworkSnapshot{
 			Applications: []model.Application{
 				{
-					Name:     "TestApp",
-					PIDs:     []int32{1234},
-					Expanded: false,
+					Name: "TestApp",
+					PIDs: []int32{1234},
 					Connections: []model.Connection{
-						{Protocol: "TCP", LocalAddr: "127.0.0.1:8080", RemoteAddr: "10.0.0.1:443", State: "ESTABLISHED"},
+						{Protocol: model.ProtocolTCP, LocalAddr: "127.0.0.1:8080", RemoteAddr: "10.0.0.1:443", State: model.StateEstablished},
 					},
 				},
 			},
 			Timestamp: time.Now(),
 		},
-		cursor:   0,
-		quitting: false,
+		cursor:       0,
+		quitting:     false,
+		expandedApps: make(map[string]bool),
 	}
 
 	view := m.View()
@@ -241,16 +241,16 @@ func TestRenderApplications_SingleApp(t *testing.T) {
 		snapshot: &model.NetworkSnapshot{
 			Applications: []model.Application{
 				{
-					Name:     "App1",
-					PIDs:     []int32{100},
-					Expanded: false,
+					Name: "App1",
+					PIDs: []int32{100},
 					Connections: []model.Connection{
-						{Protocol: "TCP"},
+						{Protocol: model.ProtocolTCP},
 					},
 				},
 			},
 		},
-		cursor: 0,
+		cursor:       0,
+		expandedApps: make(map[string]bool),
 	}
 
 	result := m.renderApplications()
@@ -261,20 +261,23 @@ func TestRenderApplications_SingleApp(t *testing.T) {
 }
 
 func TestRenderApplications_ExpandedApp(t *testing.T) {
+	expandedApps := make(map[string]bool)
+	expandedApps["ExpandedApp"] = true
+
 	m := Model{
 		snapshot: &model.NetworkSnapshot{
 			Applications: []model.Application{
 				{
-					Name:     "ExpandedApp",
-					PIDs:     []int32{100},
-					Expanded: true,
+					Name: "ExpandedApp",
+					PIDs: []int32{100},
 					Connections: []model.Connection{
-						{Protocol: "TCP", LocalAddr: "127.0.0.1:80", RemoteAddr: "10.0.0.1:443", State: "ESTABLISHED"},
+						{Protocol: model.ProtocolTCP, LocalAddr: "127.0.0.1:80", RemoteAddr: "10.0.0.1:443", State: model.StateEstablished},
 					},
 				},
 			},
 		},
-		cursor: 0,
+		cursor:       0,
+		expandedApps: expandedApps,
 	}
 
 	result := m.renderApplications()
@@ -294,16 +297,16 @@ func TestRenderApplications_CollapsedApp(t *testing.T) {
 		snapshot: &model.NetworkSnapshot{
 			Applications: []model.Application{
 				{
-					Name:     "CollapsedApp",
-					PIDs:     []int32{100},
-					Expanded: false,
+					Name: "CollapsedApp",
+					PIDs: []int32{100},
 					Connections: []model.Connection{
-						{Protocol: "TCP", LocalAddr: "127.0.0.1:80", RemoteAddr: "10.0.0.1:443", State: "ESTABLISHED"},
+						{Protocol: model.ProtocolTCP, LocalAddr: "127.0.0.1:80", RemoteAddr: "10.0.0.1:443", State: model.StateEstablished},
 					},
 				},
 			},
 		},
-		cursor: 0,
+		cursor:       0,
+		expandedApps: make(map[string]bool), // Not expanded
 	}
 
 	result := m.renderApplications()
@@ -315,12 +318,11 @@ func TestRenderApplications_CollapsedApp(t *testing.T) {
 }
 
 func TestRenderAppHeader_Collapsed(t *testing.T) {
-	m := Model{cursor: 0}
+	m := Model{cursor: 0, expandedApps: make(map[string]bool)}
 	app := model.Application{
 		Name:        "TestApp",
 		PIDs:        []int32{1234},
-		Expanded:    false,
-		Connections: []model.Connection{{Protocol: "TCP"}},
+		Connections: []model.Connection{{Protocol: model.ProtocolTCP}},
 	}
 
 	result := m.renderAppHeader(app, false)
@@ -334,12 +336,13 @@ func TestRenderAppHeader_Collapsed(t *testing.T) {
 }
 
 func TestRenderAppHeader_Expanded(t *testing.T) {
-	m := Model{cursor: 0}
+	expandedApps := make(map[string]bool)
+	expandedApps["TestApp"] = true
+	m := Model{cursor: 0, expandedApps: expandedApps}
 	app := model.Application{
 		Name:        "TestApp",
 		PIDs:        []int32{1234},
-		Expanded:    true,
-		Connections: []model.Connection{{Protocol: "TCP"}},
+		Connections: []model.Connection{{Protocol: model.ProtocolTCP}},
 	}
 
 	result := m.renderAppHeader(app, false)
