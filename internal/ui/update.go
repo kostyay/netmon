@@ -5,7 +5,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/kostyay/netmon/internal/model"
 )
 
 // Init initializes the model.
@@ -45,14 +44,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "left", "h":
 			// Collapse current app
 			if m.snapshot != nil && m.cursor < len(m.snapshot.Applications) {
-				m.snapshot.Applications[m.cursor].Expanded = false
+				m.expandedApps[m.snapshot.Applications[m.cursor].Name] = false
 			}
 			return m, nil
 
 		case "right", "l", "enter":
 			// Expand current app
 			if m.snapshot != nil && m.cursor < len(m.snapshot.Applications) {
-				m.snapshot.Applications[m.cursor].Expanded = true
+				m.expandedApps[m.snapshot.Applications[m.cursor].Name] = true
 			}
 			return m, nil
 
@@ -80,11 +79,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case DataMsg:
 		if msg.Err != nil {
-			// Handle error - for now just ignore and keep old data
+			// Store error for display in UI
+			m.lastError = msg.Err
+			m.lastErrorTime = time.Now()
 			return m, nil
 		}
-		// Preserve expanded state from previous snapshot
-		m.mergeExpandedState(msg.Snapshot)
+		// Clear error on successful fetch
+		m.lastError = nil
 		m.snapshot = msg.Snapshot
 		// Ensure cursor is valid
 		if m.snapshot != nil && m.cursor >= len(m.snapshot.Applications) {
@@ -109,24 +110,5 @@ func (m Model) fetchData() tea.Cmd {
 
 		snapshot, err := m.collector.Collect(ctx)
 		return DataMsg{Snapshot: snapshot, Err: err}
-	}
-}
-
-func (m *Model) mergeExpandedState(newSnapshot *model.NetworkSnapshot) {
-	if m.snapshot == nil || newSnapshot == nil {
-		return
-	}
-
-	// Create map of old expanded states
-	expandedMap := make(map[string]bool)
-	for _, app := range m.snapshot.Applications {
-		expandedMap[app.Name] = app.Expanded
-	}
-
-	// Apply to new snapshot
-	for i := range newSnapshot.Applications {
-		if expanded, ok := expandedMap[newSnapshot.Applications[i].Name]; ok {
-			newSnapshot.Applications[i].Expanded = expanded
-		}
 	}
 }

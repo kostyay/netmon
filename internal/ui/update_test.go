@@ -27,6 +27,7 @@ func createTestModel() Model {
 		refreshInterval: DefaultRefreshInterval,
 		snapshot:        snapshot,
 		cursor:          0,
+		expandedApps:    make(map[string]bool),
 	}
 }
 
@@ -170,13 +171,13 @@ func TestUpdate_KeyMsg_Down_AtBottom(t *testing.T) {
 
 func TestUpdate_KeyMsg_Left_Collapse(t *testing.T) {
 	m := createTestModel()
-	m.snapshot.Applications[0].Expanded = true
+	m.expandedApps["App1"] = true
 
 	msg := tea.KeyMsg{Type: tea.KeyLeft}
 	updated, cmd := m.Update(msg)
 	newModel := updated.(Model)
 
-	if newModel.snapshot.Applications[0].Expanded {
+	if newModel.expandedApps["App1"] {
 		t.Error("Application should be collapsed after left key")
 	}
 	if cmd != nil {
@@ -186,26 +187,26 @@ func TestUpdate_KeyMsg_Left_Collapse(t *testing.T) {
 
 func TestUpdate_KeyMsg_Left_H(t *testing.T) {
 	m := createTestModel()
-	m.snapshot.Applications[0].Expanded = true
+	m.expandedApps["App1"] = true
 
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}}
 	updated, _ := m.Update(msg)
 	newModel := updated.(Model)
 
-	if newModel.snapshot.Applications[0].Expanded {
+	if newModel.expandedApps["App1"] {
 		t.Error("Application should be collapsed after 'h' key")
 	}
 }
 
 func TestUpdate_KeyMsg_Right_Expand(t *testing.T) {
 	m := createTestModel()
-	m.snapshot.Applications[0].Expanded = false
+	m.expandedApps["App1"] = false
 
 	msg := tea.KeyMsg{Type: tea.KeyRight}
 	updated, cmd := m.Update(msg)
 	newModel := updated.(Model)
 
-	if !newModel.snapshot.Applications[0].Expanded {
+	if !newModel.expandedApps["App1"] {
 		t.Error("Application should be expanded after right key")
 	}
 	if cmd != nil {
@@ -215,26 +216,26 @@ func TestUpdate_KeyMsg_Right_Expand(t *testing.T) {
 
 func TestUpdate_KeyMsg_Right_L(t *testing.T) {
 	m := createTestModel()
-	m.snapshot.Applications[0].Expanded = false
+	m.expandedApps["App1"] = false
 
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}}
 	updated, _ := m.Update(msg)
 	newModel := updated.(Model)
 
-	if !newModel.snapshot.Applications[0].Expanded {
+	if !newModel.expandedApps["App1"] {
 		t.Error("Application should be expanded after 'l' key")
 	}
 }
 
 func TestUpdate_KeyMsg_Enter_Expand(t *testing.T) {
 	m := createTestModel()
-	m.snapshot.Applications[0].Expanded = false
+	m.expandedApps["App1"] = false
 
 	msg := tea.KeyMsg{Type: tea.KeyEnter}
 	updated, _ := m.Update(msg)
 	newModel := updated.(Model)
 
-	if !newModel.snapshot.Applications[0].Expanded {
+	if !newModel.expandedApps["App1"] {
 		t.Error("Application should be expanded after Enter key")
 	}
 }
@@ -362,68 +363,27 @@ func TestUpdate_DataMsg_CursorBounds(t *testing.T) {
 	}
 }
 
-func TestMergeExpandedState_NilOldSnapshot(t *testing.T) {
-	m := Model{snapshot: nil}
-	newSnapshot := createTestSnapshot()
-
-	m.mergeExpandedState(newSnapshot)
-
-	// Should not panic and newSnapshot should be unchanged
-	if newSnapshot.Applications[0].Expanded {
-		t.Error("expanded state should remain false when old snapshot is nil")
-	}
-}
-
-func TestMergeExpandedState_NilNewSnapshot(t *testing.T) {
+func TestExpandedState_PreservedAcrossDataUpdates(t *testing.T) {
 	m := createTestModel()
-	m.snapshot.Applications[0].Expanded = true
+	m.expandedApps["App1"] = true
+	m.expandedApps["App2"] = false
+	m.expandedApps["App3"] = true
 
-	m.mergeExpandedState(nil)
-
-	// Should not panic
-	if !m.snapshot.Applications[0].Expanded {
-		t.Error("old snapshot should be unchanged")
-	}
-}
-
-func TestMergeExpandedState_PreservesExpanded(t *testing.T) {
-	m := createTestModel()
-	m.snapshot.Applications[0].Expanded = true
-	m.snapshot.Applications[1].Expanded = false
-	m.snapshot.Applications[2].Expanded = true
-
+	// Simulate new data coming in
 	newSnapshot := createTestSnapshot()
-	m.mergeExpandedState(newSnapshot)
+	msg := DataMsg{Snapshot: newSnapshot, Err: nil}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
 
-	if !newSnapshot.Applications[0].Expanded {
+	// Expanded state should be preserved in the map
+	if !newModel.expandedApps["App1"] {
 		t.Error("App1 should preserve expanded state")
 	}
-	if newSnapshot.Applications[1].Expanded {
+	if newModel.expandedApps["App2"] {
 		t.Error("App2 should preserve non-expanded state")
 	}
-	if !newSnapshot.Applications[2].Expanded {
+	if !newModel.expandedApps["App3"] {
 		t.Error("App3 should preserve expanded state")
-	}
-}
-
-func TestMergeExpandedState_NewAppNotExpanded(t *testing.T) {
-	m := createTestModel()
-	m.snapshot.Applications[0].Expanded = true
-
-	newSnapshot := &model.NetworkSnapshot{
-		Applications: []model.Application{
-			{Name: "App1", Expanded: false},
-			{Name: "NewApp", Expanded: false}, // New app not in old snapshot
-		},
-	}
-
-	m.mergeExpandedState(newSnapshot)
-
-	if !newSnapshot.Applications[0].Expanded {
-		t.Error("App1 should get expanded state from old snapshot")
-	}
-	if newSnapshot.Applications[1].Expanded {
-		t.Error("NewApp should remain non-expanded")
 	}
 }
 
@@ -433,6 +393,7 @@ func TestUpdate_NilSnapshot_Down(t *testing.T) {
 		refreshInterval: DefaultRefreshInterval,
 		snapshot:        nil,
 		cursor:          0,
+		expandedApps:    make(map[string]bool),
 	}
 
 	msg := tea.KeyMsg{Type: tea.KeyDown}
@@ -450,6 +411,7 @@ func TestUpdate_NilSnapshot_Collapse(t *testing.T) {
 		refreshInterval: DefaultRefreshInterval,
 		snapshot:        nil,
 		cursor:          0,
+		expandedApps:    make(map[string]bool),
 	}
 
 	msg := tea.KeyMsg{Type: tea.KeyLeft}
@@ -468,6 +430,7 @@ func TestUpdate_NilSnapshot_Expand(t *testing.T) {
 		refreshInterval: DefaultRefreshInterval,
 		snapshot:        nil,
 		cursor:          0,
+		expandedApps:    make(map[string]bool),
 	}
 
 	msg := tea.KeyMsg{Type: tea.KeyRight}

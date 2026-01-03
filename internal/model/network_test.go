@@ -178,11 +178,10 @@ func TestConnectionStruct(t *testing.T) {
 
 func TestApplicationStruct(t *testing.T) {
 	app := Application{
-		Name:     "TestApp",
-		PIDs:     []int32{1234, 5678},
-		Expanded: true,
+		Name: "TestApp",
+		PIDs: []int32{1234, 5678},
 		Connections: []Connection{
-			{Protocol: "TCP", LocalAddr: "127.0.0.1:8080", RemoteAddr: "10.0.0.1:443", State: "ESTABLISHED"},
+			{Protocol: ProtocolTCP, LocalAddr: "127.0.0.1:8080", RemoteAddr: "10.0.0.1:443", State: StateEstablished},
 		},
 	}
 
@@ -191,8 +190,5 @@ func TestApplicationStruct(t *testing.T) {
 	}
 	if len(app.PIDs) != 2 {
 		t.Errorf("PIDs length = %d, want 2", len(app.PIDs))
-	}
-	if !app.Expanded {
-		t.Errorf("Expanded = false, want true")
 	}
 }

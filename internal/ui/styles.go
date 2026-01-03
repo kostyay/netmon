@@ -43,10 +43,8 @@ var (
 				Foreground(lipgloss.Color("#DDDDDD")).
 				Background(lipgloss.Color("#4A3B7C"))
 
-	// Expand/collapse icons
-	ExpandedIconStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#7D56F4"))
-
-	CollapsedIconStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#555555"))
+	// Error display
+	ErrorStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF5555")).
+			Bold(true)
 )
