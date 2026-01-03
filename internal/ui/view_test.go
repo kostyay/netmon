@@ -5,8 +5,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/kostyay/netmon/internal/model"
 )
+
+// initViewport initializes the viewport for testing (simulates WindowSizeMsg).
+func initViewport(m *Model) {
+	m.viewport = viewport.New(80, 20)
+	m.ready = true
+	m.width = 80
+	m.height = 26
+}
 
 func TestFormatPIDs_Empty(t *testing.T) {
 	got := formatPIDs([]int32{})
@@ -129,6 +138,7 @@ func TestView_NilSnapshot(t *testing.T) {
 		snapshot: nil,
 		quitting: false,
 	}
+	initViewport(&m)
 
 	view := m.View()
 
@@ -145,6 +155,7 @@ func TestView_EmptyApplications(t *testing.T) {
 		},
 		quitting: false,
 	}
+	initViewport(&m)
 
 	view := m.View()
 
@@ -171,6 +182,7 @@ func TestView_WithApplications(t *testing.T) {
 		quitting:     false,
 		expandedApps: make(map[string]bool),
 	}
+	initViewport(&m)
 
 	view := m.View()
 
@@ -187,6 +199,7 @@ func TestView_ContainsHeader(t *testing.T) {
 		snapshot: nil,
 		quitting: false,
 	}
+	initViewport(&m)
 
 	view := m.View()
 
@@ -200,6 +213,7 @@ func TestView_ContainsFooter(t *testing.T) {
 		snapshot: nil,
 		quitting: false,
 	}
+	initViewport(&m)
 
 	view := m.View()
 
@@ -214,6 +228,7 @@ func TestView_ContainsRefreshRate(t *testing.T) {
 		quitting:        false,
 		refreshInterval: 2 * time.Second,
 	}
+	initViewport(&m)
 
 	view := m.View()
 

@@ -7,15 +7,26 @@ import (
 	"github.com/kostyay/netmon/internal/model"
 )
 
+// Layout constants for fixed header/footer with scrollable content.
+const (
+	headerHeight = 4 // title + status + potential error + blank line
+	footerHeight = 2 // margin + controls line
+)
+
 // View renders the UI.
 func (m Model) View() string {
 	if m.quitting {
 		return ""
 	}
 
+	// Wait for viewport to be initialized
+	if !m.ready {
+		return LoadingStyle.Render("Initializing...")
+	}
+
 	var b strings.Builder
 
-	// Header
+	// === HEADER (fixed at top) ===
 	header := HeaderStyle.Render("netmon - Network Monitor")
 	b.WriteString(header)
 	b.WriteString("\n")
@@ -28,22 +39,25 @@ func (m Model) View() string {
 	// Error display
 	if m.lastError != nil {
 		b.WriteString(ErrorStyle.Render(fmt.Sprintf("Error: %s", m.lastError.Error())))
-		b.WriteString("\n")
 	}
 	b.WriteString("\n")
 
-	// Network data
+	// === CONTENT (scrollable via viewport) ===
+	var content string
 	if m.snapshot == nil {
-		b.WriteString(LoadingStyle.Render("Loading..."))
+		content = LoadingStyle.Render("Loading...")
 	} else if len(m.snapshot.Applications) == 0 {
-		b.WriteString(EmptyStyle.Render("No network connections found"))
+		content = EmptyStyle.Render("No network connections found")
 	} else {
-		b.WriteString(m.renderApplications())
+		content = m.renderApplications()
 	}
 
+	// Set content and render viewport
+	m.viewport.SetContent(content)
+	b.WriteString(m.viewport.View())
 	b.WriteString("\n")
 
-	// Footer with controls
+	// === FOOTER (fixed at bottom) ===
 	footer := FooterStyle.Render(
 		"↑↓/jk Navigate  ←→/hl Collapse/Expand  +/- Refresh rate  q Quit",
 	)
@@ -161,4 +175,22 @@ func truncateAddr(addr string, maxLen int) string {
 		return addr
 	}
 	return addr[:maxLen-3] + "..."
+}
+
+// cursorLinePosition calculates which line the currently selected app is on.
+// This is used to ensure the cursor stays visible when scrolling.
+func (m Model) cursorLinePosition() int {
+	if m.snapshot == nil {
+		return 0
+	}
+
+	lineNumber := 0
+	for i := 0; i < m.cursor && i < len(m.snapshot.Applications); i++ {
+		app := m.snapshot.Applications[i]
+		lineNumber++ // app header line
+		if m.expandedApps[app.Name] {
+			lineNumber += len(app.Connections) // connection lines
+		}
+	}
+	return lineNumber
 }
