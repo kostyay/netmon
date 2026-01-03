@@ -9,3 +9,19 @@ repos:
     hooks:
       - id: trufflehog
         entry: trufflehog git file://. --only-verified --fail
+
+  - repo: local
+    hooks:
+      - id: gosec
+        name: gosec security scanner
+        entry: gosec ./...
+        language: system
+        pass_filenames: false
+        types: [go]
+
+      - id: govulncheck
+        name: govulncheck vulnerability scanner
+        entry: govulncheck ./...
+        language: system
+        pass_filenames: false
+        types: [go]
