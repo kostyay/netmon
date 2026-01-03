@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
@@ -35,6 +36,36 @@ const (
 	SortRemote
 	SortState
 )
+
+// String returns a human-readable name for the ViewMode.
+func (v ViewMode) String() string {
+	switch v {
+	case ViewGrouped:
+		return "Grouped"
+	case ViewTable:
+		return "Table"
+	default:
+		return fmt.Sprintf("ViewMode(%d)", v)
+	}
+}
+
+// String returns a human-readable name for the SortColumn.
+func (s SortColumn) String() string {
+	switch s {
+	case SortProcess:
+		return "Process"
+	case SortProtocol:
+		return "Protocol"
+	case SortLocal:
+		return "Local"
+	case SortRemote:
+		return "Remote"
+	case SortState:
+		return "State"
+	default:
+		return fmt.Sprintf("SortColumn(%d)", s)
+	}
+}
 
 // Model is the Bubble Tea model for the network monitor.
 type Model struct {
