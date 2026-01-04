@@ -32,6 +32,57 @@ func renderRow(content string, isSelected bool) string {
 	return ConnStyle().Render(row) + "\n"
 }
 
+// renderTableHeader renders a table header with optional sort indicators.
+// If showSort is false, sort indicators are not displayed (for process list).
+func renderTableHeader(columns []columnDef, widths []int, selectedCol, sortCol SortColumn, sortAsc, showSort bool) string {
+	var b strings.Builder
+
+	headerStyle := TableHeaderStyle()
+	selectedStyle := TableHeaderSelectedStyle()
+	sortStyle := SortIndicatorStyle()
+
+	for i, col := range columns {
+		if i > 0 {
+			b.WriteString(" ")
+		}
+
+		isSelected := selectedCol == col.id
+		isSorted := showSort && sortCol == col.id
+
+		header := col.label
+
+		var sortIndicator string
+		if isSorted {
+			if sortAsc {
+				sortIndicator = "↑"
+			} else {
+				sortIndicator = "↓"
+			}
+		}
+
+		padWidth := widths[i] - len(header)
+		if isSorted {
+			padWidth -= 1
+		}
+		if padWidth < 0 {
+			padWidth = 0
+		}
+		paddedHeader := header + strings.Repeat(" ", padWidth)
+
+		if isSelected {
+			b.WriteString(selectedStyle.Render(paddedHeader))
+		} else {
+			b.WriteString(headerStyle.Render(paddedHeader))
+		}
+
+		if isSorted {
+			b.WriteString(sortStyle.Render(sortIndicator))
+		}
+	}
+
+	return b.String()
+}
+
 // calculateColumnWidths distributes available width among columns.
 // Fixed columns (flex=0) get their minWidth, remaining space goes to flex columns.
 func calculateColumnWidths(columns []columnDef, availableWidth int) []int {
@@ -281,35 +332,8 @@ func (m Model) renderProcessListHeader(widths []int) string {
 	if view == nil {
 		return ""
 	}
-
-	var b strings.Builder
-
 	columns := processListColumns()
-	headerStyle := TableHeaderStyle()
-	selectedStyle := TableHeaderSelectedStyle()
-
-	for i, col := range columns {
-		if i > 0 {
-			b.WriteString(" ")
-		}
-
-		isSelected := view.SelectedColumn == col.id
-
-		header := col.label
-		padWidth := widths[i] - len(header)
-		if padWidth < 0 {
-			padWidth = 0
-		}
-		paddedHeader := header + strings.Repeat(" ", padWidth)
-
-		if isSelected {
-			b.WriteString(selectedStyle.Render(paddedHeader))
-		} else {
-			b.WriteString(headerStyle.Render(paddedHeader))
-		}
-	}
-
-	return b.String()
+	return renderTableHeader(columns, widths, view.SelectedColumn, view.SortColumn, view.SortAscending, false)
 }
 
 // connectionsColumns returns the column definitions for the connections list.
@@ -415,54 +439,8 @@ func (m Model) renderConnectionsHeader(widths []int) string {
 	if view == nil {
 		return ""
 	}
-
-	var b strings.Builder
-
 	columns := connectionsColumns()
-	headerStyle := TableHeaderStyle()
-	selectedStyle := TableHeaderSelectedStyle()
-	sortStyle := SortIndicatorStyle()
-
-	for i, col := range columns {
-		if i > 0 {
-			b.WriteString(" ")
-		}
-
-		isSelected := view.SelectedColumn == col.id
-		isSorted := view.SortColumn == col.id
-
-		header := col.label
-
-		var sortIndicator string
-		if isSorted {
-			if view.SortAscending {
-				sortIndicator = "↑"
-			} else {
-				sortIndicator = "↓"
-			}
-		}
-
-		padWidth := widths[i] - len(header)
-		if isSorted {
-			padWidth -= 1
-		}
-		if padWidth < 0 {
-			padWidth = 0
-		}
-		paddedHeader := header + strings.Repeat(" ", padWidth)
-
-		if isSelected {
-			b.WriteString(selectedStyle.Render(paddedHeader))
-		} else {
-			b.WriteString(headerStyle.Render(paddedHeader))
-		}
-
-		if isSorted {
-			b.WriteString(sortStyle.Render(sortIndicator))
-		}
-	}
-
-	return b.String()
+	return renderTableHeader(columns, widths, view.SelectedColumn, view.SortColumn, view.SortAscending, true)
 }
 
 // connectionWithProcess holds a connection along with its process name for the all-connections view.
@@ -554,54 +532,8 @@ func (m Model) renderAllConnectionsHeader(widths []int) string {
 	if view == nil {
 		return ""
 	}
-
-	var b strings.Builder
-
 	columns := allConnectionsColumns()
-	headerStyle := TableHeaderStyle()
-	selectedStyle := TableHeaderSelectedStyle()
-	sortStyle := SortIndicatorStyle()
-
-	for i, col := range columns {
-		if i > 0 {
-			b.WriteString(" ")
-		}
-
-		isSelected := view.SelectedColumn == col.id
-		isSorted := view.SortColumn == col.id
-
-		header := col.label
-
-		var sortIndicator string
-		if isSorted {
-			if view.SortAscending {
-				sortIndicator = "↑"
-			} else {
-				sortIndicator = "↓"
-			}
-		}
-
-		padWidth := widths[i] - len(header)
-		if isSorted {
-			padWidth -= 1
-		}
-		if padWidth < 0 {
-			padWidth = 0
-		}
-		paddedHeader := header + strings.Repeat(" ", padWidth)
-
-		if isSelected {
-			b.WriteString(selectedStyle.Render(paddedHeader))
-		} else {
-			b.WriteString(headerStyle.Render(paddedHeader))
-		}
-
-		if isSorted {
-			b.WriteString(sortStyle.Render(sortIndicator))
-		}
-	}
-
-	return b.String()
+	return renderTableHeader(columns, widths, view.SelectedColumn, view.SortColumn, view.SortAscending, true)
 }
 
 // sortAllConnections sorts connections with process names based on current view state.
