@@ -213,15 +213,16 @@ func TestUpdate_KeyMsg_Right_DoesNothingOutsideSortMode(t *testing.T) {
 
 func TestUpdate_KeyMsg_Left_MovesColumnInSortMode(t *testing.T) {
 	m := createTestModel()
-	m.CurrentView().SelectedColumn = SortProcess // Column index 1
+	// Process list columns: [SortProcess, SortConns, SortEstablished, SortListen, SortTX, SortRX]
+	m.CurrentView().SelectedColumn = SortConns // Second column
 	m.CurrentView().SortMode = true
 
 	msg := tea.KeyMsg{Type: tea.KeyLeft}
 	updated, cmd := m.Update(msg)
 	newModel := updated.(Model)
 
-	if newModel.CurrentView().SelectedColumn != SortPID {
-		t.Errorf("SelectedColumn = %v, want SortPID after left in sort mode", newModel.CurrentView().SelectedColumn)
+	if newModel.CurrentView().SelectedColumn != SortProcess {
+		t.Errorf("SelectedColumn = %v, want SortProcess after left in sort mode", newModel.CurrentView().SelectedColumn)
 	}
 	if cmd != nil {
 		t.Error("cmd should be nil")
@@ -230,15 +231,16 @@ func TestUpdate_KeyMsg_Left_MovesColumnInSortMode(t *testing.T) {
 
 func TestUpdate_KeyMsg_Right_MovesColumnInSortMode(t *testing.T) {
 	m := createTestModel()
-	m.CurrentView().SelectedColumn = SortPID // Column index 0
+	// Process list columns: [SortProcess, SortConns, SortEstablished, SortListen, SortTX, SortRX]
+	m.CurrentView().SelectedColumn = SortProcess // First column
 	m.CurrentView().SortMode = true
 
 	msg := tea.KeyMsg{Type: tea.KeyRight}
 	updated, cmd := m.Update(msg)
 	newModel := updated.(Model)
 
-	if newModel.CurrentView().SelectedColumn != SortProcess {
-		t.Errorf("SelectedColumn = %v, want SortProcess after right in sort mode", newModel.CurrentView().SelectedColumn)
+	if newModel.CurrentView().SelectedColumn != SortConns {
+		t.Errorf("SelectedColumn = %v, want SortConns after right in sort mode", newModel.CurrentView().SelectedColumn)
 	}
 	if cmd != nil {
 		t.Error("cmd should be nil")
