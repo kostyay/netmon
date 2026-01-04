@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -13,7 +14,7 @@ import (
 	"github.com/kostyay/netmon/internal/model"
 )
 
-// NetIOCollector collects network I/O statistics asynchronously.
+// NetIOCollector collects network I/O statistics using nettop.
 type NetIOCollector struct{}
 
 // NewNetIOCollector creates a new network I/O collector.
@@ -21,24 +22,26 @@ func NewNetIOCollector() *NetIOCollector {
 	return &NetIOCollector{}
 }
 
-// Collect gathers network I/O stats for all processes.
-// Uses nettop command on macOS which provides per-process network stats.
+// Collect gathers network I/O stats for all processes using nettop.
+// nettop uses the private NetworkStatistics.framework internally.
 func (c *NetIOCollector) Collect(ctx context.Context) (map[int32]*model.NetIOStats, error) {
-	// Run nettop with one sample (-l 1) and parseable output (-P)
-	// nettop -P -l 1 gives us: time,interface,state,bytes_in,bytes_out,...
+	// Run nettop with one sample (-l 1), extended output (-x), specific columns (-J)
+	// Output format: "process.pid                    bytes_in     bytes_out"
 	cmd := exec.CommandContext(ctx, "nettop", "-P", "-l", "1", "-x", "-J", "bytes_in,bytes_out")
 	output, err := cmd.Output()
 	if err != nil {
 		// nettop might not be available or might require elevated privileges
-		// Return empty map on failure (graceful fallback)
 		return make(map[int32]*model.NetIOStats), nil
 	}
 
 	return parseNettopOutput(string(output))
 }
 
-// parseNettopOutput parses the output of nettop command.
-// Format: time,interface,state,bytes_in,bytes_out,process.pid
+// pidRegex matches "process_name.PID" at the start of a line
+var pidRegex = regexp.MustCompile(`\.(\d+)\s+`)
+
+// parseNettopOutput parses nettop output.
+// Format: "process_name.pid                    bytes_in     bytes_out"
 func parseNettopOutput(output string) (map[int32]*model.NetIOStats, error) {
 	stats := make(map[int32]*model.NetIOStats)
 	scanner := bufio.NewScanner(strings.NewReader(output))
@@ -46,57 +49,47 @@ func parseNettopOutput(output string) (map[int32]*model.NetIOStats, error) {
 
 	for scanner.Scan() {
 		line := scanner.Text()
+
 		// Skip header line
-		if strings.HasPrefix(line, "time") {
+		if strings.HasPrefix(line, "bytes_in") || strings.HasPrefix(line, " ") {
 			continue
 		}
 
-		fields := strings.Split(line, ",")
-		if len(fields) < 5 {
+		// Extract PID from "process_name.PID" format
+		matches := pidRegex.FindStringSubmatch(line)
+		if len(matches) < 2 {
 			continue
 		}
 
-		// Parse the line - format varies, look for bytes_in, bytes_out, and PID
-		// The format from -J is: process.pid,bytes_in,bytes_out
-		var pid int32
-		var bytesIn, bytesOut uint64
+		pid64, err := strconv.ParseInt(matches[1], 10, 32)
+		if err != nil {
+			continue
+		}
+		pid := int32(pid64)
 
-		// Try to parse each field
-		for i, field := range fields {
-			field = strings.TrimSpace(field)
-
-			// Try to identify what this field is
-			if strings.Contains(field, ".") {
-				// Might be process.pid format
-				parts := strings.Split(field, ".")
-				if len(parts) >= 2 {
-					if p, err := strconv.ParseInt(parts[len(parts)-1], 10, 32); err == nil {
-						pid = int32(p)
-					}
-				}
-			} else if i > 0 {
-				// Numeric fields after the first are bytes_in and bytes_out
-				if val, err := strconv.ParseUint(field, 10, 64); err == nil {
-					if bytesIn == 0 {
-						bytesIn = val
-					} else if bytesOut == 0 {
-						bytesOut = val
-					}
-				}
-			}
+		// Split remaining part to get bytes_in and bytes_out
+		// The line format is: "name.pid     bytes_in     bytes_out"
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
 		}
 
-		if pid > 0 {
-			existing, ok := stats[pid]
-			if ok {
-				existing.BytesRecv += bytesIn
-				existing.BytesSent += bytesOut
-			} else {
-				stats[pid] = &model.NetIOStats{
-					BytesRecv: bytesIn,
-					BytesSent: bytesOut,
-					UpdatedAt: now,
-				}
+		// Last two fields are bytes_in and bytes_out
+		bytesIn, err1 := strconv.ParseUint(fields[len(fields)-2], 10, 64)
+		bytesOut, err2 := strconv.ParseUint(fields[len(fields)-1], 10, 64)
+		if err1 != nil || err2 != nil {
+			continue
+		}
+
+		// Aggregate stats for same PID (process may have multiple entries)
+		if existing, ok := stats[pid]; ok {
+			existing.BytesRecv += bytesIn
+			existing.BytesSent += bytesOut
+		} else {
+			stats[pid] = &model.NetIOStats{
+				BytesRecv: bytesIn,
+				BytesSent: bytesOut,
+				UpdatedAt: now,
 			}
 		}
 	}
