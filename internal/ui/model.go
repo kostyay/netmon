@@ -51,6 +51,12 @@ const (
 	SortLocal
 	SortRemote
 	SortState
+	// Process list specific columns
+	SortConns
+	SortEstablished
+	SortListen
+	SortTX
+	SortRX
 )
 
 // String returns a human-readable name for the SortColumn.
@@ -68,6 +74,16 @@ func (s SortColumn) String() string {
 		return "Remote"
 	case SortState:
 		return "State"
+	case SortConns:
+		return "Conns"
+	case SortEstablished:
+		return "Established"
+	case SortListen:
+		return "Listen"
+	case SortTX:
+		return "TX"
+	case SortRX:
+		return "RX"
 	default:
 		return fmt.Sprintf("SortColumn(%d)", s)
 	}

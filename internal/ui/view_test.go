@@ -255,9 +255,9 @@ func TestRenderProcessList_Empty(t *testing.T) {
 
 	result := m.renderProcessList()
 
-	// Should still have summary
-	if !strings.Contains(result, "Showing 0 connections") {
-		t.Error("renderProcessList() with empty apps should show 0 connections")
+	// Should still have header row with column names
+	if !strings.Contains(result, "Process") {
+		t.Error("renderProcessList() with empty apps should still have header")
 	}
 }
 

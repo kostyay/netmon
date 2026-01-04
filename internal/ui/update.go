@@ -279,11 +279,11 @@ func (m Model) maxCursorForLevel(level ViewLevel) int {
 func (m Model) maxColumnForLevel(level ViewLevel) int {
 	switch level {
 	case LevelProcessList:
-		return 6 // Process, Conns, ESTAB, LISTEN, TX, RX
+		return len(processListColumns())
 	case LevelConnections:
-		return 4 // Proto, Local, Remote, State (PID removed as redundant)
+		return len(connectionsColumns())
 	case LevelAllConnections:
-		return 5 // Process, Proto, Local, Remote, State
+		return len(allConnectionsColumns())
 	default:
 		return 1
 	}
