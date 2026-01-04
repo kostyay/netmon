@@ -10,8 +10,8 @@ import (
 
 // Layout constants for fixed header/footer with scrollable content.
 const (
-	headerHeight = 3 // title + status + blank line
-	footerHeight = 2 // margin + controls line
+	headerHeight = 2 // title + blank line (crumbs moved to footer)
+	footerHeight = 3 // blank line + crumbs + keybindings
 )
 
 // View renders the UI.
@@ -37,11 +37,7 @@ func (m Model) View() string {
 	b.WriteString(header)
 	b.WriteString("\n")
 
-	// Breadcrumbs
-	b.WriteString(m.renderBreadcrumbs())
-	b.WriteString("\n")
-
-	// Error display
+	// Error display (replaces blank line if error present)
 	if m.lastError != nil {
 		b.WriteString(ErrorStyle().Render(fmt.Sprintf("Error: %s", m.lastError.Error())))
 		b.WriteString("\n")
@@ -92,8 +88,22 @@ func (m Model) renderBreadcrumbs() string {
 	return StatusStyle().Render(fmt.Sprintf("📍 %s  |  Refresh: %.1fs", crumbs, m.refreshInterval.Seconds()))
 }
 
-// renderFooter renders the footer with styled keybindings.
+// renderFooter renders the two-row footer with crumbs and keybindings.
 func (m Model) renderFooter() string {
+	var b strings.Builder
+
+	// Row 1: Breadcrumbs
+	b.WriteString(m.renderBreadcrumbs())
+	b.WriteString("\n")
+
+	// Row 2: Keybindings
+	b.WriteString(m.renderKeybindings())
+
+	return b.String()
+}
+
+// renderKeybindings renders the keybindings row.
+func (m Model) renderKeybindings() string {
 	keyStyle := FooterKeyStyle()
 	descStyle := FooterDescStyle()
 
@@ -156,12 +166,17 @@ func (m Model) renderProcessList() string {
 	for i, app := range m.snapshot.Applications {
 		isSelected := i == view.Cursor
 
+		// Aggregate TX/RX stats for all PIDs of this app
+		txStr, rxStr := m.getAggregatedNetIO(app.PIDs)
+
 		// Build row content
-		row := fmt.Sprintf("%-20s %5d %5d %5d",
+		row := fmt.Sprintf("%-20s %5d %5d %5d %8s %8s",
 			truncateString(app.Name, 20),
 			len(app.Connections),
 			app.EstablishedCount,
 			app.ListenCount,
+			txStr,
+			rxStr,
 		)
 
 		// Add selection marker
@@ -196,6 +211,8 @@ func (m Model) renderProcessListHeader() string {
 		{"Conns", 1, 6},
 		{"ESTAB", 2, 6},
 		{"LISTEN", 3, 6},
+		{"TX", 4, 9},
+		{"RX", 5, 9},
 	}
 
 	headerStyle := TableHeaderStyle()
@@ -251,12 +268,21 @@ func (m Model) renderConnectionsList() string {
 
 	var b strings.Builder
 
-	// Summary
-	summary := StatusStyle().Render(fmt.Sprintf("%s: %d connections",
-		selectedApp.Name, len(selectedApp.Connections)))
-	b.WriteString(summary)
+	// === HEADER SECTION ===
+	// Process name (bold)
+	b.WriteString(HeaderStyle().Render(selectedApp.Name))
+	b.WriteString("\n")
+
+	// PIDs and TX/RX stats
+	txStr, rxStr := m.getAggregatedNetIO(selectedApp.PIDs)
+	statsLine := fmt.Sprintf("PIDs: %s  |  TX: %s  RX: %s  |  %d connections",
+		formatPIDList(selectedApp.PIDs),
+		txStr, rxStr,
+		len(selectedApp.Connections))
+	b.WriteString(StatusStyle().Render(statsLine))
 	b.WriteString("\n\n")
 
+	// === CONNECTIONS TABLE ===
 	// Header
 	b.WriteString(m.renderConnectionsHeader())
 	b.WriteString("\n")
@@ -264,16 +290,15 @@ func (m Model) renderConnectionsList() string {
 	// Sort connections
 	conns := m.sortConnectionsForView(selectedApp.Connections)
 
-	// Render each connection
+	// Render each connection (no PID column - redundant at this level)
 	for i, conn := range conns {
 		isSelected := i == view.Cursor
 
-		row := fmt.Sprintf("%-5s %-21s %-21s %-11s %6d",
+		row := fmt.Sprintf("%-5s %-21s %-21s %-11s",
 			conn.Protocol,
 			truncateAddr(conn.LocalAddr, 21),
 			truncateAddr(conn.RemoteAddr, 21),
 			conn.State,
-			conn.PID,
 		)
 
 		if isSelected {
@@ -287,6 +312,24 @@ func (m Model) renderConnectionsList() string {
 	}
 
 	return b.String()
+}
+
+// formatPIDList formats a slice of PIDs for display.
+func formatPIDList(pids []int32) string {
+	if len(pids) == 0 {
+		return "-"
+	}
+	if len(pids) == 1 {
+		return fmt.Sprintf("%d", pids[0])
+	}
+	if len(pids) <= 3 {
+		strs := make([]string, len(pids))
+		for i, p := range pids {
+			strs[i] = fmt.Sprintf("%d", p)
+		}
+		return strings.Join(strs, ", ")
+	}
+	return fmt.Sprintf("%d, %d +%d more", pids[0], pids[1], len(pids)-2)
 }
 
 // renderConnectionsHeader renders the header for connections table.
@@ -307,7 +350,6 @@ func (m Model) renderConnectionsHeader() string {
 		{"Local", SortLocal, 22},
 		{"Remote", SortRemote, 22},
 		{"State", SortState, 12},
-		{"PID", SortPID, 6},
 	}
 
 	headerStyle := TableHeaderStyle()
@@ -473,6 +515,27 @@ func formatBytesOrDash(stats *model.NetIOStats, isSent bool) string {
 		return formatBytes(stats.BytesSent)
 	}
 	return formatBytes(stats.BytesRecv)
+}
+
+// getAggregatedNetIO returns formatted TX and RX strings aggregated across all PIDs.
+// Returns "--" for each if no stats are available.
+func (m Model) getAggregatedNetIO(pids []int32) (tx, rx string) {
+	var totalSent, totalRecv uint64
+	hasStats := false
+
+	for _, pid := range pids {
+		if stats, ok := m.netIOCache[pid]; ok {
+			totalSent += stats.BytesSent
+			totalRecv += stats.BytesRecv
+			hasStats = true
+		}
+	}
+
+	if !hasStats {
+		return "--", "--"
+	}
+
+	return formatBytes(totalSent), formatBytes(totalRecv)
 }
 
 // ensureCursorVisible adjusts the viewport scroll position to keep the cursor visible.

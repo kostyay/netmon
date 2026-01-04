@@ -17,6 +17,7 @@ run:
 
 clean:
 	rm -rf bin/
+	rm -f netmon
 
 security:
 	govulncheck ./...
