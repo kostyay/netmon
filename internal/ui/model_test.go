@@ -393,7 +393,7 @@ func TestBreadcrumbs_AtRoot(t *testing.T) {
 	m := createTestModel()
 	m.ready = true
 
-	crumbs := m.renderBreadcrumbs()
+	crumbs := m.renderBreadcrumbsText()
 
 	if !contains(crumbs, "Processes") {
 		t.Errorf("breadcrumbs at root should contain 'Processes', got: %s", crumbs)
@@ -409,7 +409,7 @@ func TestBreadcrumbs_AtConnections(t *testing.T) {
 		ProcessName: "Chrome",
 	})
 
-	crumbs := m.renderBreadcrumbs()
+	crumbs := m.renderBreadcrumbsText()
 
 	if !contains(crumbs, "Processes") {
 		t.Errorf("breadcrumbs should contain 'Processes', got: %s", crumbs)

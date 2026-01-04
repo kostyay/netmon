@@ -22,8 +22,9 @@ const (
 type ViewLevel int
 
 const (
-	LevelProcessList ViewLevel = iota // Level 0: list of processes
-	LevelConnections                  // Level 1: connections for a specific process
+	LevelProcessList    ViewLevel = iota // Level 0: list of processes
+	LevelConnections                     // Level 1: connections for a specific process
+	LevelAllConnections                  // Level 2: flat view of all connections
 )
 
 // String returns a human-readable name for the ViewLevel.
@@ -33,6 +34,8 @@ func (v ViewLevel) String() string {
 		return "Processes"
 	case LevelConnections:
 		return "Connections"
+	case LevelAllConnections:
+		return "All Connections"
 	default:
 		return fmt.Sprintf("ViewLevel(%d)", v)
 	}
