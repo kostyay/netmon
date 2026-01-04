@@ -10,8 +10,9 @@ import (
 
 // Layout constants for fixed header/footer with scrollable content.
 const (
-	headerHeight = 2 // title + blank line (crumbs moved to footer)
-	footerHeight = 3 // blank line + crumbs + keybindings
+	headerHeight = 1 // title row
+	footerHeight = 2 // crumbs + keybindings
+	frameHeight  = 2 // top and bottom border
 )
 
 // View renders the UI.
@@ -32,18 +33,16 @@ func (m Model) View() string {
 
 	var b strings.Builder
 
-	// === HEADER (fixed at top) ===
-	header := HeaderStyle().Render("netmon - Network Monitor")
+	// === HEADER (fixed at top, full width) ===
+	headerText := "netmon - Network Monitor"
+	if m.lastError != nil {
+		headerText = fmt.Sprintf("netmon - Network Monitor  │  Error: %s", m.lastError.Error())
+	}
+	header := HeaderStyle().Width(m.width).Render(headerText)
 	b.WriteString(header)
 	b.WriteString("\n")
 
-	// Error display (replaces blank line if error present)
-	if m.lastError != nil {
-		b.WriteString(ErrorStyle().Render(fmt.Sprintf("Error: %s", m.lastError.Error())))
-		b.WriteString("\n")
-	}
-
-	// === CONTENT (scrollable via viewport) ===
+	// === CONTENT (scrollable via viewport, wrapped in frame) ===
 	var content string
 	if m.snapshot == nil {
 		content = LoadingStyle().Render("Loading...")
@@ -55,82 +54,106 @@ func (m Model) View() string {
 			content = m.renderProcessList()
 		case LevelConnections:
 			content = m.renderConnectionsList()
+		case LevelAllConnections:
+			content = m.renderAllConnections()
 		}
 	}
 
 	// Set content, sync scroll position, and render viewport
 	m.viewport.SetContent(content)
 	m.ensureCursorVisible()
-	b.WriteString(m.viewport.View())
+
+	// Wrap viewport in a frame with border
+	frameStyle := FrameStyle(m.width, m.viewport.Height+frameHeight)
+	framedContent := frameStyle.Render(m.viewport.View())
+	b.WriteString(framedContent)
 	b.WriteString("\n")
 
-	// === FOOTER (fixed at bottom) ===
+	// === FOOTER (fixed at bottom, full width) ===
 	b.WriteString(m.renderFooter())
 
 	return b.String()
 }
 
-// renderBreadcrumbs renders the navigation breadcrumbs.
-func (m Model) renderBreadcrumbs() string {
+// renderBreadcrumbsText returns the breadcrumbs text without styling.
+func (m Model) renderBreadcrumbsText() string {
 	view := m.CurrentView()
 	if view == nil {
 		return ""
 	}
 
 	var parts []string
-	parts = append(parts, "Processes")
-
-	if view.Level == LevelConnections {
-		parts = append(parts, view.ProcessName)
+	switch view.Level {
+	case LevelProcessList:
+		parts = append(parts, "Processes")
+	case LevelConnections:
+		parts = append(parts, "Processes", view.ProcessName)
+	case LevelAllConnections:
+		parts = append(parts, "All Connections")
 	}
 
 	crumbs := strings.Join(parts, " > ")
-	return StatusStyle().Render(fmt.Sprintf("📍 %s  |  Refresh: %.1fs", crumbs, m.refreshInterval.Seconds()))
+	return fmt.Sprintf("📍 %s  |  Refresh: %.1fs", crumbs, m.refreshInterval.Seconds())
 }
 
 // renderFooter renders the two-row footer with crumbs and keybindings.
 func (m Model) renderFooter() string {
 	var b strings.Builder
 
-	// Row 1: Breadcrumbs
-	b.WriteString(m.renderBreadcrumbs())
+	// Row 1: Breadcrumbs (full width)
+	b.WriteString(StatusStyle().Width(m.width).Render(m.renderBreadcrumbsText()))
 	b.WriteString("\n")
 
-	// Row 2: Keybindings
-	b.WriteString(m.renderKeybindings())
+	// Row 2: Keybindings (full width)
+	b.WriteString(FooterStyle().Width(m.width).Render(m.renderKeybindingsText()))
 
 	return b.String()
 }
 
-// renderKeybindings renders the keybindings row.
-func (m Model) renderKeybindings() string {
+// renderKeybindingsText returns the keybindings text with inline styling.
+func (m Model) renderKeybindingsText() string {
 	keyStyle := FooterKeyStyle()
 	descStyle := FooterDescStyle()
 
 	view := m.CurrentView()
 	var parts []string
 
-	if view != nil && view.Level == LevelProcessList {
+	if view == nil {
+		return ""
+	}
+
+	switch view.Level {
+	case LevelProcessList:
 		parts = []string{
 			keyStyle.Render("↑↓") + descStyle.Render(" Navigate"),
 			keyStyle.Render("←→") + descStyle.Render(" Column"),
 			keyStyle.Render("Enter") + descStyle.Render(" Drill-in"),
+			keyStyle.Render("v") + descStyle.Render(" All"),
 			keyStyle.Render("+/-") + descStyle.Render(" Refresh"),
 			keyStyle.Render("q") + descStyle.Render(" Quit"),
 		}
-	} else {
+	case LevelConnections:
 		parts = []string{
 			keyStyle.Render("↑↓") + descStyle.Render(" Navigate"),
 			keyStyle.Render("←→") + descStyle.Render(" Column"),
 			keyStyle.Render("Enter") + descStyle.Render(" Sort"),
 			keyStyle.Render("Esc") + descStyle.Render(" Back"),
+			keyStyle.Render("v") + descStyle.Render(" All"),
+			keyStyle.Render("+/-") + descStyle.Render(" Refresh"),
+			keyStyle.Render("q") + descStyle.Render(" Quit"),
+		}
+	case LevelAllConnections:
+		parts = []string{
+			keyStyle.Render("↑↓") + descStyle.Render(" Navigate"),
+			keyStyle.Render("←→") + descStyle.Render(" Column"),
+			keyStyle.Render("Enter") + descStyle.Render(" Sort"),
+			keyStyle.Render("v") + descStyle.Render(" Grouped"),
 			keyStyle.Render("+/-") + descStyle.Render(" Refresh"),
 			keyStyle.Render("q") + descStyle.Render(" Quit"),
 		}
 	}
 
-	footerText := strings.Join(parts, "  ")
-	return FooterStyle().Render(footerText)
+	return strings.Join(parts, "  ")
 }
 
 // renderProcessList renders the process list table (Level 0).
@@ -396,6 +419,184 @@ func (m Model) renderConnectionsHeader() string {
 	}
 
 	return b.String()
+}
+
+// connectionWithProcess holds a connection along with its process name for the all-connections view.
+type connectionWithProcess struct {
+	model.Connection
+	ProcessName string
+}
+
+// renderAllConnections renders a flat list of all connections from all processes.
+func (m Model) renderAllConnections() string {
+	if m.snapshot == nil {
+		return LoadingStyle().Render("Loading...")
+	}
+
+	view := m.CurrentView()
+	if view == nil {
+		return ""
+	}
+
+	var b strings.Builder
+
+	// === HEADER SECTION ===
+	totalConns := m.snapshot.TotalConnections()
+	if m.snapshot.SkippedCount > 0 {
+		summary := StatusStyle().Render(fmt.Sprintf("All Connections: %d (%d hidden)",
+			totalConns, m.snapshot.SkippedCount))
+		b.WriteString(summary)
+	} else {
+		summary := StatusStyle().Render(fmt.Sprintf("All Connections: %d", totalConns))
+		b.WriteString(summary)
+	}
+	b.WriteString("\n\n")
+
+	// === CONNECTIONS TABLE ===
+	// Header
+	b.WriteString(m.renderAllConnectionsHeader())
+	b.WriteString("\n")
+
+	// Collect all connections with process names
+	var allConns []connectionWithProcess
+	for _, app := range m.snapshot.Applications {
+		for _, conn := range app.Connections {
+			allConns = append(allConns, connectionWithProcess{
+				Connection:  conn,
+				ProcessName: app.Name,
+			})
+		}
+	}
+
+	// Sort connections
+	allConns = m.sortAllConnections(allConns)
+
+	// Render each connection
+	for i, conn := range allConns {
+		isSelected := i == view.Cursor
+
+		row := fmt.Sprintf("%-15s %-5s %-21s %-21s %-11s",
+			truncateString(conn.ProcessName, 15),
+			conn.Protocol,
+			truncateAddr(conn.LocalAddr, 21),
+			truncateAddr(conn.RemoteAddr, 21),
+			conn.State,
+		)
+
+		if isSelected {
+			row = "▶ " + row
+			b.WriteString(SelectedConnStyle().Render(row))
+		} else {
+			row = "  " + row
+			b.WriteString(ConnStyle().Render(row))
+		}
+		b.WriteString("\n")
+	}
+
+	return b.String()
+}
+
+// renderAllConnectionsHeader renders the header for the all-connections table.
+func (m Model) renderAllConnectionsHeader() string {
+	view := m.CurrentView()
+	if view == nil {
+		return ""
+	}
+
+	var b strings.Builder
+
+	columns := []struct {
+		label      string
+		sortColumn SortColumn
+		width      int
+	}{
+		{"Process", SortProcess, 17},
+		{"Proto", SortProtocol, 6},
+		{"Local", SortLocal, 22},
+		{"Remote", SortRemote, 22},
+		{"State", SortState, 12},
+	}
+
+	headerStyle := TableHeaderStyle()
+	selectedStyle := TableHeaderSelectedStyle()
+	sortStyle := SortIndicatorStyle()
+
+	for i, col := range columns {
+		if i > 0 {
+			b.WriteString(" ")
+		}
+
+		isSelected := view.SelectedColumn == col.sortColumn
+		isSorted := view.SortColumn == col.sortColumn
+
+		header := col.label
+
+		var sortIndicator string
+		if isSorted {
+			if view.SortAscending {
+				sortIndicator = "↑"
+			} else {
+				sortIndicator = "↓"
+			}
+		}
+
+		padWidth := col.width - len(header)
+		if isSorted {
+			padWidth -= 1
+		}
+		if padWidth < 0 {
+			padWidth = 0
+		}
+		paddedHeader := header + strings.Repeat(" ", padWidth)
+
+		if isSelected {
+			b.WriteString(selectedStyle.Render(paddedHeader))
+		} else {
+			b.WriteString(headerStyle.Render(paddedHeader))
+		}
+
+		if isSorted {
+			b.WriteString(sortStyle.Render(sortIndicator))
+		}
+	}
+
+	return b.String()
+}
+
+// sortAllConnections sorts connections with process names based on current view state.
+func (m Model) sortAllConnections(conns []connectionWithProcess) []connectionWithProcess {
+	view := m.CurrentView()
+	if view == nil {
+		return conns
+	}
+
+	sorted := make([]connectionWithProcess, len(conns))
+	copy(sorted, conns)
+
+	sort.Slice(sorted, func(i, j int) bool {
+		var less bool
+		switch view.SortColumn {
+		case SortProcess:
+			less = sorted[i].ProcessName < sorted[j].ProcessName
+		case SortProtocol:
+			less = sorted[i].Protocol < sorted[j].Protocol
+		case SortLocal:
+			less = sorted[i].LocalAddr < sorted[j].LocalAddr
+		case SortRemote:
+			less = sorted[i].RemoteAddr < sorted[j].RemoteAddr
+		case SortState:
+			less = sorted[i].State < sorted[j].State
+		default:
+			less = sorted[i].ProcessName < sorted[j].ProcessName
+		}
+
+		if view.SortAscending {
+			return less
+		}
+		return !less
+	})
+
+	return sorted
 }
 
 // sortConnectionsForView sorts connections based on current view state.

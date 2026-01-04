@@ -344,7 +344,7 @@ func TestRenderBreadcrumbs_ProcessList(t *testing.T) {
 		stack:           []ViewState{{Level: LevelProcessList}},
 	}
 
-	result := m.renderBreadcrumbs()
+	result := m.renderBreadcrumbsText()
 
 	if !strings.Contains(result, "Processes") {
 		t.Error("Breadcrumbs should contain 'Processes'")
@@ -363,7 +363,7 @@ func TestRenderBreadcrumbs_ConnectionsLevel(t *testing.T) {
 		},
 	}
 
-	result := m.renderBreadcrumbs()
+	result := m.renderBreadcrumbsText()
 
 	if !strings.Contains(result, "Processes") {
 		t.Error("Breadcrumbs should contain 'Processes'")
@@ -564,7 +564,7 @@ func TestRenderKeybindings_ProcessList(t *testing.T) {
 		}},
 	}
 
-	result := m.renderKeybindings()
+	result := m.renderKeybindingsText()
 
 	// Process list should show Drill-in
 	if !strings.Contains(result, "Drill-in") {
@@ -582,7 +582,7 @@ func TestRenderKeybindings_Connections(t *testing.T) {
 		}},
 	}
 
-	result := m.renderKeybindings()
+	result := m.renderKeybindingsText()
 
 	// Connections level should show Back and Sort
 	if !strings.Contains(result, "Back") {

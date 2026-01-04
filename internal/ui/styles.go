@@ -11,15 +11,13 @@ import (
 func HeaderStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Header.TitleFg)).
-		MarginBottom(1)
+		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Header.TitleFg))
 }
 
 // FooterStyle returns the style for footer text.
 func FooterStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Footer.FgColor)).
-		MarginTop(1)
+		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Footer.FgColor))
 }
 
 // FooterKeyStyle returns the style for keyboard shortcut keys in footer.
@@ -107,4 +105,14 @@ func TableHeaderSelectedStyle() lipgloss.Style {
 func SortIndicatorStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Table.SortIndicator))
+}
+
+// FrameStyle returns the style for the main content frame with border.
+func FrameStyle(width, height int) lipgloss.Style {
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(config.CurrentTheme.Styles.Table.HeaderFgColor)).
+		Width(width - 2).   // Account for border
+		Height(height - 2). // Account for border
+		Padding(0, 1)
 }

@@ -25,16 +25,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
-		viewportHeight := msg.Height - headerHeight - footerHeight
+		// Calculate viewport height: total - header - footer - frame borders
+		viewportHeight := msg.Height - headerHeight - footerHeight - frameHeight
 		if viewportHeight < 1 {
 			viewportHeight = 1
 		}
 
+		// Viewport width accounts for frame border and padding (2 border + 2 padding)
+		viewportWidth := msg.Width - 4
+		if viewportWidth < 1 {
+			viewportWidth = 1
+		}
+
 		if !m.ready {
-			m.viewport = viewport.New(msg.Width, viewportHeight)
+			m.viewport = viewport.New(viewportWidth, viewportHeight)
 			m.ready = true
 		} else {
-			m.viewport.Width = msg.Width
+			m.viewport.Width = viewportWidth
 			m.viewport.Height = viewportHeight
 		}
 		return m, nil
@@ -131,6 +138,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Increase refresh interval (slower refresh)
 			if m.refreshInterval < MaxRefreshInterval {
 				m.refreshInterval += RefreshStep
+			}
+			return m, nil
+
+		case "v":
+			// Toggle between grouped (process list) and ungrouped (all connections) view
+			view := m.CurrentView()
+			if view == nil {
+				return m, nil
+			}
+			if view.Level == LevelAllConnections {
+				// Toggle back to process list
+				m.stack = []ViewState{{
+					Level:          LevelProcessList,
+					Cursor:         0,
+					SortColumn:     SortProcess,
+					SortAscending:  true,
+					SelectedColumn: SortProcess,
+				}}
+			} else {
+				// Toggle to all connections view
+				m.stack = []ViewState{{
+					Level:          LevelAllConnections,
+					Cursor:         0,
+					SortColumn:     SortProcess,
+					SortAscending:  true,
+					SelectedColumn: SortProcess,
+				}}
 			}
 			return m, nil
 
@@ -234,6 +268,8 @@ func (m Model) maxCursorForLevel(level ViewLevel) int {
 			}
 		}
 		return 0
+	case LevelAllConnections:
+		return m.snapshot.TotalConnections()
 	default:
 		return 0
 	}
@@ -246,6 +282,8 @@ func (m Model) maxColumnForLevel(level ViewLevel) int {
 		return 6 // Process, Conns, ESTAB, LISTEN, TX, RX
 	case LevelConnections:
 		return 4 // Proto, Local, Remote, State (PID removed as redundant)
+	case LevelAllConnections:
+		return 5 // Process, Proto, Local, Remote, State
 	default:
 		return 1
 	}
