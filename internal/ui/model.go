@@ -30,7 +30,8 @@ const (
 type SortColumn int
 
 const (
-	SortProcess SortColumn = iota
+	SortPID SortColumn = iota
+	SortProcess
 	SortProtocol
 	SortLocal
 	SortRemote
@@ -52,6 +53,8 @@ func (v ViewMode) String() string {
 // String returns a human-readable name for the SortColumn.
 func (s SortColumn) String() string {
 	switch s {
+	case SortPID:
+		return "PID"
 	case SortProcess:
 		return "Process"
 	case SortProtocol:
@@ -94,10 +97,11 @@ type Model struct {
 	ready    bool // true after viewport initialized on first WindowSizeMsg
 
 	// Table view state
-	viewMode      ViewMode
-	sortColumn    SortColumn
-	sortAscending bool
-	tableCursor   int
+	viewMode       ViewMode
+	sortColumn     SortColumn
+	sortAscending  bool
+	tableCursor    int
+	selectedColumn SortColumn // Column currently selected for navigation
 }
 
 // NewModel creates a new Model with default settings.
@@ -110,6 +114,7 @@ func NewModel() Model {
 		sortColumn:      SortProcess,
 		sortAscending:   true,
 		tableCursor:     0,
+		selectedColumn:  SortProcess, // Initialize to sort column
 	}
 }
 

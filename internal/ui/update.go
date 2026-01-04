@@ -8,6 +8,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// Number of columns in table view for navigation bounds.
+const numColumns = 6
+
 // Init initializes the model.
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
@@ -75,25 +78,53 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case "left", "h":
-			// Collapse current app (grouped view only)
 			if m.viewMode == ViewGrouped {
+				// Collapse current app
 				if m.snapshot != nil && m.cursor < len(m.snapshot.Applications) {
 					m.expandedApps[m.snapshot.Applications[m.cursor].Name] = false
 					m.syncViewportToCursor()
 				}
+			} else {
+				// Table view: move column selection left
+				if m.selectedColumn > 0 {
+					m.selectedColumn--
+				}
 			}
-			// No-op in table view
 			return m, nil
 
-		case "right", "l", "enter":
-			// Expand current app (grouped view only)
+		case "right", "l":
 			if m.viewMode == ViewGrouped {
+				// Expand current app
 				if m.snapshot != nil && m.cursor < len(m.snapshot.Applications) {
 					m.expandedApps[m.snapshot.Applications[m.cursor].Name] = true
 					m.syncViewportToCursor()
 				}
+			} else {
+				// Table view: move column selection right
+				if m.selectedColumn < numColumns-1 {
+					m.selectedColumn++
+				}
 			}
-			// No-op in table view
+			return m, nil
+
+		case "enter", " ":
+			if m.viewMode == ViewGrouped {
+				// Expand current app
+				if m.snapshot != nil && m.cursor < len(m.snapshot.Applications) {
+					m.expandedApps[m.snapshot.Applications[m.cursor].Name] = true
+					m.syncViewportToCursor()
+				}
+			} else {
+				// Table view: sort by selected column
+				if m.sortColumn == m.selectedColumn {
+					// Toggle sort direction
+					m.sortAscending = !m.sortAscending
+				} else {
+					// New column, default to ascending
+					m.sortColumn = m.selectedColumn
+					m.sortAscending = true
+				}
+			}
 			return m, nil
 
 		case "+", "=":
@@ -118,34 +149,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.viewMode = ViewGrouped
 			}
 			return m, nil
-
-		case "1", "2", "3", "4", "5":
-			// Column sorting (only in table view)
-			if m.viewMode == ViewTable {
-				var newColumn SortColumn
-				switch msg.String() {
-				case "1":
-					newColumn = SortProcess
-				case "2":
-					newColumn = SortProtocol
-				case "3":
-					newColumn = SortLocal
-				case "4":
-					newColumn = SortRemote
-				case "5":
-					newColumn = SortState
-				}
-
-				if m.sortColumn == newColumn {
-					// Toggle sort direction
-					m.sortAscending = !m.sortAscending
-				} else {
-					// New column, default to ascending
-					m.sortColumn = newColumn
-					m.sortAscending = true
-				}
-				return m, nil
-			}
 
 		default:
 			// Pass unhandled keys to viewport for page up/down, mouse scroll, etc.

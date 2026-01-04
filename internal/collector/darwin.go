@@ -76,6 +76,7 @@ func (c *darwinCollector) Collect(ctx context.Context) (*model.NetworkSnapshot, 
 
 		// Convert connection
 		mc := model.Connection{
+			PID:        conn.Pid,
 			Protocol:   c.getProtocol(conn.Type),
 			LocalAddr:  formatAddr(conn.Laddr.IP, conn.Laddr.Port),
 			RemoteAddr: c.formatRemoteAddr(conn),

@@ -1,0 +1,27 @@
+name: dracula
+
+styles:
+  table:
+    fgColor: "#f8f8f2"
+    bgColor: "#282a36"
+    cursorFgColor: "#282a36"
+    cursorBgColor: "#bd93f9"
+    headerFgColor: "#bd93f9"
+    headerBgColor: "#282a36"
+    sortIndicator: "#8be9fd"
+    selectedColumn: "#f8f8f2"
+
+  header:
+    fgColor: "#f8f8f2"
+    bgColor: "#282a36"
+    titleFg: "#bd93f9"
+
+  footer:
+    fgColor: "#f8f8f2"
+    bgColor: "#282a36"
+    keyFgColor: "#ff79c6"
+    descFgColor: "#f8f8f2"
+
+  status:
+    fgColor: "#6272a4"
+    bgColor: "#282a36"
