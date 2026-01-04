@@ -276,3 +276,182 @@ func TestSortColumnString(t *testing.T) {
 type testError struct{}
 
 func (e *testError) Error() string { return "test error" }
+
+// Additional navigation stack tests
+
+func TestNavigationStack_CursorPreservation(t *testing.T) {
+	m := NewModel()
+
+	// Set cursor in root view
+	m.CurrentView().Cursor = 5
+	m.CurrentView().SortColumn = SortProcess
+	m.CurrentView().SortAscending = false
+
+	// Push new view
+	m.PushView(ViewState{
+		Level:       LevelConnections,
+		ProcessName: "Chrome",
+		Cursor:      3,
+	})
+
+	// Pop back
+	m.PopView()
+
+	// Verify original cursor and sort settings preserved
+	if m.CurrentView().Cursor != 5 {
+		t.Errorf("cursor = %d, want 5 (preserved)", m.CurrentView().Cursor)
+	}
+	if m.CurrentView().SortColumn != SortProcess {
+		t.Errorf("sortColumn = %v, want SortProcess", m.CurrentView().SortColumn)
+	}
+	if m.CurrentView().SortAscending != false {
+		t.Error("sortAscending should be false (preserved)")
+	}
+}
+
+func TestNavigationStack_MultiLevelNavigation(t *testing.T) {
+	m := NewModel()
+
+	// Start at root
+	if len(m.stack) != 1 {
+		t.Fatalf("initial stack = %d, want 1", len(m.stack))
+	}
+
+	// Push to connections view
+	m.PushView(ViewState{
+		Level:       LevelConnections,
+		ProcessName: "Chrome",
+		Cursor:      2,
+	})
+
+	if len(m.stack) != 2 {
+		t.Fatalf("stack after push = %d, want 2", len(m.stack))
+	}
+
+	// Verify current view
+	cv := m.CurrentView()
+	if cv.Level != LevelConnections {
+		t.Errorf("level = %v, want LevelConnections", cv.Level)
+	}
+	if cv.ProcessName != "Chrome" {
+		t.Errorf("processName = %s, want Chrome", cv.ProcessName)
+	}
+
+	// Pop back
+	m.PopView()
+
+	if len(m.stack) != 1 {
+		t.Fatalf("stack after pop = %d, want 1", len(m.stack))
+	}
+	if m.CurrentView().Level != LevelProcessList {
+		t.Errorf("after pop level = %v, want LevelProcessList", m.CurrentView().Level)
+	}
+}
+
+func TestNavigationStack_ColumnSelection(t *testing.T) {
+	m := NewModel()
+
+	// Initial column selection
+	if m.CurrentView().SelectedColumn != SortProcess {
+		t.Errorf("initial column = %v, want SortProcess", m.CurrentView().SelectedColumn)
+	}
+
+	// Move column selection
+	m.CurrentView().SelectedColumn = SortPID
+
+	// Push view and verify it has its own column selection
+	m.PushView(ViewState{
+		Level:          LevelConnections,
+		ProcessName:    "Firefox",
+		SelectedColumn: SortLocal,
+	})
+
+	if m.CurrentView().SelectedColumn != SortLocal {
+		t.Errorf("pushed view column = %v, want SortLocal", m.CurrentView().SelectedColumn)
+	}
+
+	// Pop and verify original column selection preserved
+	m.PopView()
+
+	if m.CurrentView().SelectedColumn != SortPID {
+		t.Errorf("after pop column = %v, want SortPID", m.CurrentView().SelectedColumn)
+	}
+}
+
+func TestCurrentView_EmptyStack(t *testing.T) {
+	m := Model{
+		stack: []ViewState{}, // Empty stack
+	}
+
+	cv := m.CurrentView()
+	if cv != nil {
+		t.Error("CurrentView should return nil for empty stack")
+	}
+}
+
+func TestBreadcrumbs_AtRoot(t *testing.T) {
+	m := createTestModel()
+	m.ready = true
+
+	crumbs := m.renderBreadcrumbs()
+
+	if !contains(crumbs, "Processes") {
+		t.Errorf("breadcrumbs at root should contain 'Processes', got: %s", crumbs)
+	}
+}
+
+func TestBreadcrumbs_AtConnections(t *testing.T) {
+	m := createTestModel()
+	m.ready = true
+
+	m.PushView(ViewState{
+		Level:       LevelConnections,
+		ProcessName: "Chrome",
+	})
+
+	crumbs := m.renderBreadcrumbs()
+
+	if !contains(crumbs, "Processes") {
+		t.Errorf("breadcrumbs should contain 'Processes', got: %s", crumbs)
+	}
+	if !contains(crumbs, "Chrome") {
+		t.Errorf("breadcrumbs should contain 'Chrome', got: %s", crumbs)
+	}
+}
+
+func TestViewState_Defaults(t *testing.T) {
+	m := NewModel()
+	view := m.CurrentView()
+
+	if view.Level != LevelProcessList {
+		t.Errorf("default level = %v, want LevelProcessList", view.Level)
+	}
+	if view.ProcessName != "" {
+		t.Errorf("default processName = %s, want empty", view.ProcessName)
+	}
+	if view.Cursor != 0 {
+		t.Errorf("default cursor = %d, want 0", view.Cursor)
+	}
+	if view.SortColumn != SortProcess {
+		t.Errorf("default sortColumn = %v, want SortProcess", view.SortColumn)
+	}
+	if view.SortAscending != true {
+		t.Error("default sortAscending should be true")
+	}
+	if view.SelectedColumn != SortProcess {
+		t.Errorf("default selectedColumn = %v, want SortProcess", view.SelectedColumn)
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsString(s, substr))
+}
+
+func containsString(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

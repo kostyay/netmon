@@ -421,9 +421,7 @@ func TestRenderConnectionsHeader(t *testing.T) {
 	if !strings.Contains(result, "State") {
 		t.Error("Header should contain 'State'")
 	}
-	if !strings.Contains(result, "PID") {
-		t.Error("Header should contain 'PID'")
-	}
+	// PID column removed - redundant in process detail view
 	if !strings.Contains(result, "↑") {
 		t.Error("Header should contain ascending sort indicator")
 	}
@@ -554,5 +552,212 @@ func TestTruncateString(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("truncateString(%q, %d) = %q, want %q", tt.s, tt.maxLen, got, tt.want)
 		}
+	}
+}
+
+// Tests for keybindings by level
+
+func TestRenderKeybindings_ProcessList(t *testing.T) {
+	m := Model{
+		stack: []ViewState{{
+			Level: LevelProcessList,
+		}},
+	}
+
+	result := m.renderKeybindings()
+
+	// Process list should show Drill-in
+	if !strings.Contains(result, "Drill-in") {
+		t.Error("Process list keybindings should contain 'Drill-in'")
+	}
+	if strings.Contains(result, "Back") {
+		t.Error("Process list keybindings should NOT contain 'Back'")
+	}
+}
+
+func TestRenderKeybindings_Connections(t *testing.T) {
+	m := Model{
+		stack: []ViewState{{
+			Level: LevelConnections,
+		}},
+	}
+
+	result := m.renderKeybindings()
+
+	// Connections level should show Back and Sort
+	if !strings.Contains(result, "Back") {
+		t.Error("Connections keybindings should contain 'Back'")
+	}
+	if !strings.Contains(result, "Sort") {
+		t.Error("Connections keybindings should contain 'Sort'")
+	}
+	if strings.Contains(result, "Drill-in") {
+		t.Error("Connections keybindings should NOT contain 'Drill-in'")
+	}
+}
+
+// Tests for aggregated network I/O
+
+func TestGetAggregatedNetIO_NoStats(t *testing.T) {
+	m := Model{
+		netIOCache: make(map[int32]*model.NetIOStats),
+	}
+
+	tx, rx := m.getAggregatedNetIO([]int32{1, 2, 3})
+
+	if tx != "--" || rx != "--" {
+		t.Errorf("No stats should return '--', got TX=%s, RX=%s", tx, rx)
+	}
+}
+
+func TestGetAggregatedNetIO_SinglePID(t *testing.T) {
+	m := Model{
+		netIOCache: map[int32]*model.NetIOStats{
+			100: {BytesSent: 1024, BytesRecv: 2048},
+		},
+	}
+
+	tx, rx := m.getAggregatedNetIO([]int32{100})
+
+	if tx != "1.0 KB" {
+		t.Errorf("TX should be 1.0 KB, got %s", tx)
+	}
+	if rx != "2.0 KB" {
+		t.Errorf("RX should be 2.0 KB, got %s", rx)
+	}
+}
+
+func TestGetAggregatedNetIO_MultiplePIDs(t *testing.T) {
+	m := Model{
+		netIOCache: map[int32]*model.NetIOStats{
+			100: {BytesSent: 1024, BytesRecv: 2048},
+			200: {BytesSent: 1024, BytesRecv: 2048},
+		},
+	}
+
+	tx, rx := m.getAggregatedNetIO([]int32{100, 200})
+
+	if tx != "2.0 KB" {
+		t.Errorf("TX should be 2.0 KB (aggregated), got %s", tx)
+	}
+	if rx != "4.0 KB" {
+		t.Errorf("RX should be 4.0 KB (aggregated), got %s", rx)
+	}
+}
+
+func TestGetAggregatedNetIO_PartialStats(t *testing.T) {
+	m := Model{
+		netIOCache: map[int32]*model.NetIOStats{
+			100: {BytesSent: 1024, BytesRecv: 2048},
+			// 200 has no stats
+		},
+	}
+
+	tx, rx := m.getAggregatedNetIO([]int32{100, 200})
+
+	// Should still show stats for PIDs that have them
+	if tx != "1.0 KB" {
+		t.Errorf("TX should be 1.0 KB, got %s", tx)
+	}
+	if rx != "2.0 KB" {
+		t.Errorf("RX should be 2.0 KB, got %s", rx)
+	}
+}
+
+// Tests for PID list formatting
+
+func TestFormatPIDList_Empty(t *testing.T) {
+	result := formatPIDList([]int32{})
+	if result != "-" {
+		t.Errorf("Empty PIDs should return '-', got %s", result)
+	}
+}
+
+func TestFormatPIDList_Single(t *testing.T) {
+	result := formatPIDList([]int32{1234})
+	if result != "1234" {
+		t.Errorf("Single PID should return '1234', got %s", result)
+	}
+}
+
+func TestFormatPIDList_Multiple(t *testing.T) {
+	result := formatPIDList([]int32{1, 2, 3})
+	if result != "1, 2, 3" {
+		t.Errorf("Multiple PIDs should return '1, 2, 3', got %s", result)
+	}
+}
+
+func TestFormatPIDList_ManyMore(t *testing.T) {
+	result := formatPIDList([]int32{1, 2, 3, 4, 5})
+	if result != "1, 2 +3 more" {
+		t.Errorf("Many PIDs should return '1, 2 +3 more', got %s", result)
+	}
+}
+
+// Tests for process detail view header
+
+func TestRenderConnectionsList_HeaderContent(t *testing.T) {
+	m := Model{
+		snapshot: &model.NetworkSnapshot{
+			Applications: []model.Application{
+				{
+					Name: "Chrome",
+					PIDs: []int32{100, 101},
+					Connections: []model.Connection{
+						{Protocol: "TCP", LocalAddr: "127.0.0.1:80", State: "ESTABLISHED"},
+					},
+				},
+			},
+		},
+		netIOCache: map[int32]*model.NetIOStats{
+			100: {BytesSent: 1024, BytesRecv: 2048},
+		},
+		stack: []ViewState{{
+			Level:       LevelConnections,
+			ProcessName: "Chrome",
+		}},
+	}
+
+	result := m.renderConnectionsList()
+
+	// Should contain process name
+	if !strings.Contains(result, "Chrome") {
+		t.Error("Detail view should contain process name 'Chrome'")
+	}
+	// Should contain PIDs
+	if !strings.Contains(result, "100") {
+		t.Error("Detail view should contain PID '100'")
+	}
+	// Should contain TX/RX
+	if !strings.Contains(result, "TX:") {
+		t.Error("Detail view should contain 'TX:'")
+	}
+	if !strings.Contains(result, "RX:") {
+		t.Error("Detail view should contain 'RX:'")
+	}
+}
+
+// Tests for two-row footer layout
+
+func TestRenderFooter_ContainsBothRows(t *testing.T) {
+	m := Model{
+		refreshInterval: 2 * time.Second,
+		stack: []ViewState{{
+			Level: LevelProcessList,
+		}},
+	}
+
+	result := m.renderFooter()
+
+	// Should contain breadcrumbs (row 1)
+	if !strings.Contains(result, "Processes") {
+		t.Error("Footer should contain 'Processes' breadcrumb")
+	}
+	// Should contain keybindings (row 2)
+	if !strings.Contains(result, "Navigate") {
+		t.Error("Footer should contain 'Navigate' keybinding")
+	}
+	if !strings.Contains(result, "Quit") {
+		t.Error("Footer should contain 'Quit' keybinding")
 	}
 }
