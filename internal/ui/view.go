@@ -321,8 +321,11 @@ func (m Model) renderProcessList() string {
 	b.WriteString(m.renderProcessListHeader(widths))
 	b.WriteString("\n")
 
+	// Sort applications
+	apps := m.sortProcessList(m.snapshot.Applications)
+
 	// Render each process row
-	for i, app := range m.snapshot.Applications {
+	for i, app := range apps {
 		isSelected := i == view.Cursor
 
 		// Aggregate TX/RX stats for all PIDs of this app
@@ -351,7 +354,7 @@ func (m Model) renderProcessListHeader(widths []int) string {
 		return ""
 	}
 	columns := processListColumns()
-	return renderTableHeader(columns, widths, view.SelectedColumn, view.SortColumn, view.SortAscending, false)
+	return renderTableHeader(columns, widths, view.SelectedColumn, view.SortColumn, view.SortAscending, true)
 }
 
 // connectionsColumns returns the column definitions for the connections list.
@@ -588,6 +591,72 @@ func (m Model) sortAllConnections(conns []connectionWithProcess) []connectionWit
 	})
 
 	return sorted
+}
+
+// sortProcessList sorts applications based on current view state.
+func (m Model) sortProcessList(apps []model.Application) []model.Application {
+	view := m.CurrentView()
+	if view == nil {
+		return apps
+	}
+
+	sorted := make([]model.Application, len(apps))
+	copy(sorted, apps)
+
+	sort.Slice(sorted, func(i, j int) bool {
+		var less bool
+		switch view.SortColumn {
+		case SortProcess:
+			less = sorted[i].Name < sorted[j].Name
+		case SortConns:
+			less = len(sorted[i].Connections) < len(sorted[j].Connections)
+		case SortEstablished:
+			less = sorted[i].EstablishedCount < sorted[j].EstablishedCount
+		case SortListen:
+			less = sorted[i].ListenCount < sorted[j].ListenCount
+		case SortTX:
+			// Sort by aggregated TX bytes
+			txI := m.getAggregatedTXBytes(sorted[i].PIDs)
+			txJ := m.getAggregatedTXBytes(sorted[j].PIDs)
+			less = txI < txJ
+		case SortRX:
+			// Sort by aggregated RX bytes
+			rxI := m.getAggregatedRXBytes(sorted[i].PIDs)
+			rxJ := m.getAggregatedRXBytes(sorted[j].PIDs)
+			less = rxI < rxJ
+		default:
+			less = sorted[i].Name < sorted[j].Name
+		}
+
+		if view.SortAscending {
+			return less
+		}
+		return !less
+	})
+
+	return sorted
+}
+
+// getAggregatedTXBytes returns the total TX bytes for all PIDs.
+func (m Model) getAggregatedTXBytes(pids []int32) uint64 {
+	var total uint64
+	for _, pid := range pids {
+		if stats, ok := m.netIOCache[pid]; ok {
+			total += stats.BytesSent
+		}
+	}
+	return total
+}
+
+// getAggregatedRXBytes returns the total RX bytes for all PIDs.
+func (m Model) getAggregatedRXBytes(pids []int32) uint64 {
+	var total uint64
+	for _, pid := range pids {
+		if stats, ok := m.netIOCache[pid]; ok {
+			total += stats.BytesRecv
+		}
+	}
+	return total
 }
 
 // sortConnectionsForView sorts connections based on current view state.
