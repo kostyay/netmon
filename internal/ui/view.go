@@ -473,10 +473,11 @@ type connectionWithProcess struct {
 // allConnectionsColumns returns the column definitions for the all-connections list.
 func allConnectionsColumns() []columnDef {
 	return []columnDef{
+		{label: "PID", id: SortPID, minWidth: 6, flex: 0, rightAlign: true},
 		{label: "Process", id: SortProcess, minWidth: 12, flex: 2},
 		{label: "Proto", id: SortProtocol, minWidth: 6, flex: 0},
-		{label: "Local", id: SortLocal, minWidth: 20, flex: 2},
-		{label: "Remote", id: SortRemote, minWidth: 20, flex: 2},
+		{label: "Local", id: SortLocal, minWidth: 18, flex: 2},
+		{label: "Remote", id: SortRemote, minWidth: 18, flex: 2},
 		{label: "State", id: SortState, minWidth: 11, flex: 1},
 	}
 }
@@ -493,18 +494,6 @@ func (m Model) renderAllConnections() string {
 	}
 
 	var b strings.Builder
-
-	// === HEADER SECTION ===
-	totalConns := m.snapshot.TotalConnections()
-	if m.snapshot.SkippedCount > 0 {
-		summary := StatusStyle().Render(fmt.Sprintf("All Connections: %d (%d hidden)",
-			totalConns, m.snapshot.SkippedCount))
-		b.WriteString(summary)
-	} else {
-		summary := StatusStyle().Render(fmt.Sprintf("All Connections: %d", totalConns))
-		b.WriteString(summary)
-	}
-	b.WriteString("\n\n")
 
 	// === CONNECTIONS TABLE ===
 	// Calculate column widths
@@ -533,12 +522,13 @@ func (m Model) renderAllConnections() string {
 	for i, conn := range allConns {
 		isSelected := i == view.Cursor
 
-		row := fmt.Sprintf("%-*s %-*s %-*s %-*s %-*s",
-			widths[0], truncateString(conn.ProcessName, widths[0]),
-			widths[1], conn.Protocol,
-			widths[2], truncateAddr(conn.LocalAddr, widths[2]),
-			widths[3], truncateAddr(conn.RemoteAddr, widths[3]),
-			widths[4], conn.State,
+		row := fmt.Sprintf("%*d %-*s %-*s %-*s %-*s %-*s",
+			widths[0], conn.PID,
+			widths[1], truncateString(conn.ProcessName, widths[1]),
+			widths[2], conn.Protocol,
+			widths[3], truncateAddr(conn.LocalAddr, widths[3]),
+			widths[4], truncateAddr(conn.RemoteAddr, widths[4]),
+			widths[5], conn.State,
 		)
 
 		b.WriteString(renderRow(row, isSelected))
@@ -570,6 +560,8 @@ func (m Model) sortAllConnections(conns []connectionWithProcess) []connectionWit
 	sort.Slice(sorted, func(i, j int) bool {
 		var less bool
 		switch view.SortColumn {
+		case SortPID:
+			less = sorted[i].PID < sorted[j].PID
 		case SortProcess:
 			less = sorted[i].ProcessName < sorted[j].ProcessName
 		case SortProtocol:
@@ -581,7 +573,7 @@ func (m Model) sortAllConnections(conns []connectionWithProcess) []connectionWit
 		case SortState:
 			less = sorted[i].State < sorted[j].State
 		default:
-			less = sorted[i].ProcessName < sorted[j].ProcessName
+			less = sorted[i].PID < sorted[j].PID
 		}
 
 		if view.SortAscending {
