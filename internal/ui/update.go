@@ -76,8 +76,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			// Move column selection left (only in sort mode)
-			if view.SelectedColumn > 0 {
-				view.SelectedColumn--
+			columns := m.columnsForLevel(view.Level)
+			currentIdx := m.findColumnIndex(columns, view.SelectedColumn)
+			if currentIdx > 0 {
+				view.SelectedColumn = columns[currentIdx-1]
 			}
 			return m, nil
 
@@ -87,9 +89,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			// Move column selection right (only in sort mode)
-			maxCol := m.maxColumnForLevel(view.Level)
-			if int(view.SelectedColumn) < maxCol-1 {
-				view.SelectedColumn++
+			columns := m.columnsForLevel(view.Level)
+			currentIdx := m.findColumnIndex(columns, view.SelectedColumn)
+			if currentIdx < len(columns)-1 {
+				view.SelectedColumn = columns[currentIdx+1]
 			}
 			return m, nil
 
@@ -306,5 +309,36 @@ func (m Model) maxColumnForLevel(level ViewLevel) int {
 	default:
 		return 1
 	}
+}
+
+// columnsForLevel returns the SortColumn IDs for the given view level.
+func (m Model) columnsForLevel(level ViewLevel) []SortColumn {
+	var cols []columnDef
+	switch level {
+	case LevelProcessList:
+		cols = processListColumns()
+	case LevelConnections:
+		cols = connectionsColumns()
+	case LevelAllConnections:
+		cols = allConnectionsColumns()
+	default:
+		return nil
+	}
+	result := make([]SortColumn, len(cols))
+	for i, col := range cols {
+		result[i] = col.id
+	}
+	return result
+}
+
+// findColumnIndex returns the index of the given SortColumn in the columns slice.
+// Returns 0 if not found.
+func (m Model) findColumnIndex(columns []SortColumn, col SortColumn) int {
+	for i, c := range columns {
+		if c == col {
+			return i
+		}
+	}
+	return 0
 }
 
