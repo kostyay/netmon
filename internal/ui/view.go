@@ -291,6 +291,7 @@ func (m Model) renderKeybindingsText() string {
 // processListColumns returns the column definitions for the process list.
 func processListColumns() []columnDef {
 	return []columnDef{
+		{label: "PID", id: SortPID, minWidth: 6, flex: 0, rightAlign: true},
 		{label: "Process", id: SortProcess, minWidth: 15, flex: 3, rightAlign: false},
 		{label: "Conns", id: SortConns, minWidth: 6, flex: 0, rightAlign: true},
 		{label: "ESTAB", id: SortEstablished, minWidth: 6, flex: 0, rightAlign: true},
@@ -331,14 +332,21 @@ func (m Model) renderProcessList() string {
 		// Aggregate TX/RX stats for all PIDs of this app
 		txStr, rxStr := m.getAggregatedNetIO(app.PIDs)
 
+		// Get primary PID (first in list)
+		var primaryPID int32
+		if len(app.PIDs) > 0 {
+			primaryPID = app.PIDs[0]
+		}
+
 		// Build row content with dynamic widths
-		row := fmt.Sprintf("%-*s %*d %*d %*d %*s %*s",
-			widths[0], truncateString(app.Name, widths[0]),
-			widths[1], len(app.Connections),
-			widths[2], app.EstablishedCount,
-			widths[3], app.ListenCount,
-			widths[4], txStr,
-			widths[5], rxStr,
+		row := fmt.Sprintf("%*d %-*s %*d %*d %*d %*s %*s",
+			widths[0], primaryPID,
+			widths[1], truncateString(app.Name, widths[1]),
+			widths[2], len(app.Connections),
+			widths[3], app.EstablishedCount,
+			widths[4], app.ListenCount,
+			widths[5], txStr,
+			widths[6], rxStr,
 		)
 
 		b.WriteString(renderRow(row, isSelected))
@@ -598,6 +606,17 @@ func (m Model) sortProcessList(apps []model.Application) []model.Application {
 	sort.Slice(sorted, func(i, j int) bool {
 		var less bool
 		switch view.SortColumn {
+		case SortPID:
+			// Sort by primary (first) PID
+			pidI := int32(0)
+			pidJ := int32(0)
+			if len(sorted[i].PIDs) > 0 {
+				pidI = sorted[i].PIDs[0]
+			}
+			if len(sorted[j].PIDs) > 0 {
+				pidJ = sorted[j].PIDs[0]
+			}
+			less = pidI < pidJ
 		case SortProcess:
 			less = sorted[i].Name < sorted[j].Name
 		case SortConns:
