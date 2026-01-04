@@ -15,6 +15,55 @@ const (
 	frameHeight  = 2 // top and bottom border
 )
 
+// columnDef defines a table column with sizing properties.
+type columnDef struct {
+	label      string
+	sortColumn SortColumn
+	colIndex   int  // for process list which uses int instead of SortColumn
+	minWidth   int  // minimum width
+	flex       int  // flex weight for extra space distribution (0 = fixed)
+}
+
+// calculateColumnWidths distributes available width among columns.
+// Fixed columns (flex=0) get their minWidth, remaining space goes to flex columns.
+func calculateColumnWidths(columns []columnDef, availableWidth int) []int {
+	widths := make([]int, len(columns))
+
+	// Account for spaces between columns and selection marker
+	separators := len(columns) - 1
+	selectionMarker := 2 // "▶ " or "  "
+	availableWidth -= separators + selectionMarker
+
+	// First pass: assign minimum widths and calculate total flex
+	totalMinWidth := 0
+	totalFlex := 0
+	for i, col := range columns {
+		widths[i] = col.minWidth
+		totalMinWidth += col.minWidth
+		totalFlex += col.flex
+	}
+
+	// Distribute remaining space to flex columns
+	extraSpace := availableWidth - totalMinWidth
+	if extraSpace > 0 && totalFlex > 0 {
+		for i, col := range columns {
+			if col.flex > 0 {
+				extra := (extraSpace * col.flex) / totalFlex
+				widths[i] += extra
+			}
+		}
+	}
+
+	return widths
+}
+
+// contentWidth returns the available width for table content.
+// Accounts for frame border and padding.
+func (m Model) contentWidth() int {
+	// Frame has 2 chars border + 2 chars padding = 4 total
+	return m.width - 4
+}
+
 // View renders the UI.
 func (m Model) View() string {
 	if m.quitting {
@@ -156,6 +205,18 @@ func (m Model) renderKeybindingsText() string {
 	return strings.Join(parts, "  ")
 }
 
+// processListColumns returns the column definitions for the process list.
+func processListColumns() []columnDef {
+	return []columnDef{
+		{label: "Process", colIndex: 0, minWidth: 15, flex: 3},
+		{label: "Conns", colIndex: 1, minWidth: 6, flex: 0},
+		{label: "ESTAB", colIndex: 2, minWidth: 6, flex: 0},
+		{label: "LISTEN", colIndex: 3, minWidth: 7, flex: 0},
+		{label: "TX", colIndex: 4, minWidth: 8, flex: 1},
+		{label: "RX", colIndex: 5, minWidth: 8, flex: 1},
+	}
+}
+
 // renderProcessList renders the process list table (Level 0).
 func (m Model) renderProcessList() string {
 	if m.snapshot == nil {
@@ -181,8 +242,12 @@ func (m Model) renderProcessList() string {
 	}
 	b.WriteString("\n\n")
 
+	// Calculate column widths
+	columns := processListColumns()
+	widths := calculateColumnWidths(columns, m.contentWidth())
+
 	// Render header
-	b.WriteString(m.renderProcessListHeader())
+	b.WriteString(m.renderProcessListHeader(widths))
 	b.WriteString("\n")
 
 	// Render each process row
@@ -192,14 +257,14 @@ func (m Model) renderProcessList() string {
 		// Aggregate TX/RX stats for all PIDs of this app
 		txStr, rxStr := m.getAggregatedNetIO(app.PIDs)
 
-		// Build row content
-		row := fmt.Sprintf("%-20s %5d %5d %5d %8s %8s",
-			truncateString(app.Name, 20),
-			len(app.Connections),
-			app.EstablishedCount,
-			app.ListenCount,
-			txStr,
-			rxStr,
+		// Build row content with dynamic widths
+		row := fmt.Sprintf("%-*s %*d %*d %*d %*s %*s",
+			widths[0], truncateString(app.Name, widths[0]),
+			widths[1], len(app.Connections),
+			widths[2], app.EstablishedCount,
+			widths[3], app.ListenCount,
+			widths[4], txStr,
+			widths[5], rxStr,
 		)
 
 		// Add selection marker
@@ -217,7 +282,7 @@ func (m Model) renderProcessList() string {
 }
 
 // renderProcessListHeader renders the header for process list table.
-func (m Model) renderProcessListHeader() string {
+func (m Model) renderProcessListHeader(widths []int) string {
 	view := m.CurrentView()
 	if view == nil {
 		return ""
@@ -225,19 +290,7 @@ func (m Model) renderProcessListHeader() string {
 
 	var b strings.Builder
 
-	columns := []struct {
-		label  string
-		column int
-		width  int
-	}{
-		{"Process", 0, 22},
-		{"Conns", 1, 6},
-		{"ESTAB", 2, 6},
-		{"LISTEN", 3, 6},
-		{"TX", 4, 9},
-		{"RX", 5, 9},
-	}
-
+	columns := processListColumns()
 	headerStyle := TableHeaderStyle()
 	selectedStyle := TableHeaderSelectedStyle()
 
@@ -246,10 +299,10 @@ func (m Model) renderProcessListHeader() string {
 			b.WriteString(" ")
 		}
 
-		isSelected := int(view.SelectedColumn) == col.column
+		isSelected := int(view.SelectedColumn) == col.colIndex
 
 		header := col.label
-		padWidth := col.width - len(header)
+		padWidth := widths[i] - len(header)
 		if padWidth < 0 {
 			padWidth = 0
 		}
@@ -263,6 +316,16 @@ func (m Model) renderProcessListHeader() string {
 	}
 
 	return b.String()
+}
+
+// connectionsColumns returns the column definitions for the connections list.
+func connectionsColumns() []columnDef {
+	return []columnDef{
+		{label: "Proto", sortColumn: SortProtocol, minWidth: 6, flex: 0},
+		{label: "Local", sortColumn: SortLocal, minWidth: 20, flex: 2},
+		{label: "Remote", sortColumn: SortRemote, minWidth: 20, flex: 2},
+		{label: "State", sortColumn: SortState, minWidth: 11, flex: 1},
+	}
 }
 
 // renderConnectionsList renders connections for a specific process (Level 1).
@@ -306,8 +369,12 @@ func (m Model) renderConnectionsList() string {
 	b.WriteString("\n\n")
 
 	// === CONNECTIONS TABLE ===
+	// Calculate column widths
+	columns := connectionsColumns()
+	widths := calculateColumnWidths(columns, m.contentWidth())
+
 	// Header
-	b.WriteString(m.renderConnectionsHeader())
+	b.WriteString(m.renderConnectionsHeader(widths))
 	b.WriteString("\n")
 
 	// Sort connections
@@ -317,11 +384,11 @@ func (m Model) renderConnectionsList() string {
 	for i, conn := range conns {
 		isSelected := i == view.Cursor
 
-		row := fmt.Sprintf("%-5s %-21s %-21s %-11s",
-			conn.Protocol,
-			truncateAddr(conn.LocalAddr, 21),
-			truncateAddr(conn.RemoteAddr, 21),
-			conn.State,
+		row := fmt.Sprintf("%-*s %-*s %-*s %-*s",
+			widths[0], conn.Protocol,
+			widths[1], truncateAddr(conn.LocalAddr, widths[1]),
+			widths[2], truncateAddr(conn.RemoteAddr, widths[2]),
+			widths[3], conn.State,
 		)
 
 		if isSelected {
@@ -356,7 +423,7 @@ func formatPIDList(pids []int32) string {
 }
 
 // renderConnectionsHeader renders the header for connections table.
-func (m Model) renderConnectionsHeader() string {
+func (m Model) renderConnectionsHeader(widths []int) string {
 	view := m.CurrentView()
 	if view == nil {
 		return ""
@@ -364,17 +431,7 @@ func (m Model) renderConnectionsHeader() string {
 
 	var b strings.Builder
 
-	columns := []struct {
-		label      string
-		sortColumn SortColumn
-		width      int
-	}{
-		{"Proto", SortProtocol, 6},
-		{"Local", SortLocal, 22},
-		{"Remote", SortRemote, 22},
-		{"State", SortState, 12},
-	}
-
+	columns := connectionsColumns()
 	headerStyle := TableHeaderStyle()
 	selectedStyle := TableHeaderSelectedStyle()
 	sortStyle := SortIndicatorStyle()
@@ -398,7 +455,7 @@ func (m Model) renderConnectionsHeader() string {
 			}
 		}
 
-		padWidth := col.width - len(header)
+		padWidth := widths[i] - len(header)
 		if isSorted {
 			padWidth -= 1
 		}
@@ -427,6 +484,17 @@ type connectionWithProcess struct {
 	ProcessName string
 }
 
+// allConnectionsColumns returns the column definitions for the all-connections list.
+func allConnectionsColumns() []columnDef {
+	return []columnDef{
+		{label: "Process", sortColumn: SortProcess, minWidth: 12, flex: 2},
+		{label: "Proto", sortColumn: SortProtocol, minWidth: 6, flex: 0},
+		{label: "Local", sortColumn: SortLocal, minWidth: 20, flex: 2},
+		{label: "Remote", sortColumn: SortRemote, minWidth: 20, flex: 2},
+		{label: "State", sortColumn: SortState, minWidth: 11, flex: 1},
+	}
+}
+
 // renderAllConnections renders a flat list of all connections from all processes.
 func (m Model) renderAllConnections() string {
 	if m.snapshot == nil {
@@ -453,8 +521,12 @@ func (m Model) renderAllConnections() string {
 	b.WriteString("\n\n")
 
 	// === CONNECTIONS TABLE ===
+	// Calculate column widths
+	columns := allConnectionsColumns()
+	widths := calculateColumnWidths(columns, m.contentWidth())
+
 	// Header
-	b.WriteString(m.renderAllConnectionsHeader())
+	b.WriteString(m.renderAllConnectionsHeader(widths))
 	b.WriteString("\n")
 
 	// Collect all connections with process names
@@ -475,12 +547,12 @@ func (m Model) renderAllConnections() string {
 	for i, conn := range allConns {
 		isSelected := i == view.Cursor
 
-		row := fmt.Sprintf("%-15s %-5s %-21s %-21s %-11s",
-			truncateString(conn.ProcessName, 15),
-			conn.Protocol,
-			truncateAddr(conn.LocalAddr, 21),
-			truncateAddr(conn.RemoteAddr, 21),
-			conn.State,
+		row := fmt.Sprintf("%-*s %-*s %-*s %-*s %-*s",
+			widths[0], truncateString(conn.ProcessName, widths[0]),
+			widths[1], conn.Protocol,
+			widths[2], truncateAddr(conn.LocalAddr, widths[2]),
+			widths[3], truncateAddr(conn.RemoteAddr, widths[3]),
+			widths[4], conn.State,
 		)
 
 		if isSelected {
@@ -497,7 +569,7 @@ func (m Model) renderAllConnections() string {
 }
 
 // renderAllConnectionsHeader renders the header for the all-connections table.
-func (m Model) renderAllConnectionsHeader() string {
+func (m Model) renderAllConnectionsHeader(widths []int) string {
 	view := m.CurrentView()
 	if view == nil {
 		return ""
@@ -505,18 +577,7 @@ func (m Model) renderAllConnectionsHeader() string {
 
 	var b strings.Builder
 
-	columns := []struct {
-		label      string
-		sortColumn SortColumn
-		width      int
-	}{
-		{"Process", SortProcess, 17},
-		{"Proto", SortProtocol, 6},
-		{"Local", SortLocal, 22},
-		{"Remote", SortRemote, 22},
-		{"State", SortState, 12},
-	}
-
+	columns := allConnectionsColumns()
 	headerStyle := TableHeaderStyle()
 	selectedStyle := TableHeaderSelectedStyle()
 	sortStyle := SortIndicatorStyle()
@@ -540,7 +601,7 @@ func (m Model) renderAllConnectionsHeader() string {
 			}
 		}
 
-		padWidth := col.width - len(header)
+		padWidth := widths[i] - len(header)
 		if isSorted {
 			padWidth -= 1
 		}
