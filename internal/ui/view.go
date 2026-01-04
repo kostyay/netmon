@@ -17,10 +17,11 @@ const (
 
 // columnDef defines a table column with sizing properties.
 type columnDef struct {
-	label    string
-	id       SortColumn // column identifier for selection/sorting
-	minWidth int        // minimum width
-	flex     int        // flex weight for extra space distribution (0 = fixed)
+	label      string
+	id         SortColumn // column identifier for selection/sorting
+	minWidth   int        // minimum width
+	flex       int        // flex weight for extra space distribution (0 = fixed)
+	rightAlign bool       // true for right-aligned columns (numbers)
 }
 
 // renderRow renders a table row with selection styling.
@@ -70,7 +71,12 @@ func renderTableHeader(columns []columnDef, widths []int, selectedCol, sortCol S
 		if padWidth < 0 {
 			padWidth = 0
 		}
-		paddedHeader := header + strings.Repeat(" ", padWidth)
+		var paddedHeader string
+		if col.rightAlign {
+			paddedHeader = strings.Repeat(" ", padWidth) + header
+		} else {
+			paddedHeader = header + strings.Repeat(" ", padWidth)
+		}
 
 		if isSelected {
 			b.WriteString(selectedStyle.Render(paddedHeader))
@@ -276,12 +282,12 @@ func (m Model) renderKeybindingsText() string {
 // processListColumns returns the column definitions for the process list.
 func processListColumns() []columnDef {
 	return []columnDef{
-		{label: "Process", id: SortProcess, minWidth: 15, flex: 3},
-		{label: "Conns", id: SortConns, minWidth: 6, flex: 0},
-		{label: "ESTAB", id: SortEstablished, minWidth: 6, flex: 0},
-		{label: "LISTEN", id: SortListen, minWidth: 7, flex: 0},
-		{label: "TX", id: SortTX, minWidth: 8, flex: 1},
-		{label: "RX", id: SortRX, minWidth: 8, flex: 1},
+		{label: "Process", id: SortProcess, minWidth: 15, flex: 3, rightAlign: false},
+		{label: "Conns", id: SortConns, minWidth: 6, flex: 0, rightAlign: true},
+		{label: "ESTAB", id: SortEstablished, minWidth: 6, flex: 0, rightAlign: true},
+		{label: "LISTEN", id: SortListen, minWidth: 7, flex: 0, rightAlign: true},
+		{label: "TX", id: SortTX, minWidth: 8, flex: 1, rightAlign: true},
+		{label: "RX", id: SortRX, minWidth: 8, flex: 1, rightAlign: true},
 	}
 }
 
