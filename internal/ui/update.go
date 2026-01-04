@@ -72,10 +72,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "left", "h":
 			view := m.CurrentView()
-			if view == nil {
+			if view == nil || !view.SortMode {
 				return m, nil
 			}
-			// Move column selection left
+			// Move column selection left (only in sort mode)
 			if view.SelectedColumn > 0 {
 				view.SelectedColumn--
 			}
@@ -83,10 +83,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "right", "l":
 			view := m.CurrentView()
-			if view == nil {
+			if view == nil || !view.SortMode {
 				return m, nil
 			}
-			// Move column selection right
+			// Move column selection right (only in sort mode)
 			maxCol := m.maxColumnForLevel(view.Level)
 			if int(view.SelectedColumn) < maxCol-1 {
 				view.SelectedColumn++
@@ -98,8 +98,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if view == nil || m.snapshot == nil {
 				return m, nil
 			}
+			if view.SortMode {
+				// Apply sort and exit sort mode
+				if view.SortColumn == view.SelectedColumn {
+					view.SortAscending = !view.SortAscending
+				} else {
+					view.SortColumn = view.SelectedColumn
+					view.SortAscending = true
+				}
+				view.SortMode = false
+				return m, nil
+			}
+			// Not in sort mode - drill down on process list
 			if view.Level == LevelProcessList {
-				// Push to connections view for selected process
 				if view.Cursor < len(m.snapshot.Applications) {
 					app := m.snapshot.Applications[view.Cursor]
 					m.PushView(ViewState{
@@ -111,18 +122,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						SelectedColumn: SortLocal,
 					})
 				}
-			} else {
-				// Sort by selected column
-				if view.SortColumn == view.SelectedColumn {
-					view.SortAscending = !view.SortAscending
-				} else {
-					view.SortColumn = view.SelectedColumn
-					view.SortAscending = true
-				}
 			}
 			return m, nil
 
 		case "esc", "backspace":
+			view := m.CurrentView()
+			if view != nil && view.SortMode {
+				// Exit sort mode without changing sort
+				view.SortMode = false
+				return m, nil
+			}
 			// Pop view (go back)
 			m.PopView()
 			return m, nil
@@ -139,6 +148,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.refreshInterval < MaxRefreshInterval {
 				m.refreshInterval += RefreshStep
 			}
+			return m, nil
+
+		case "s":
+			// Enter sort mode
+			view := m.CurrentView()
+			if view == nil || view.SortMode {
+				return m, nil
+			}
+			view.SortMode = true
+			view.SelectedColumn = view.SortColumn // Start at current sort column
 			return m, nil
 
 		case "v":

@@ -177,7 +177,7 @@ func TestUpdate_KeyMsg_Down_AtBottom(t *testing.T) {
 	}
 }
 
-func TestUpdate_KeyMsg_Left_MovesColumn(t *testing.T) {
+func TestUpdate_KeyMsg_Left_DoesNothingOutsideSortMode(t *testing.T) {
 	m := createTestModel()
 	m.CurrentView().SelectedColumn = SortProcess // Column index 1
 
@@ -185,15 +185,16 @@ func TestUpdate_KeyMsg_Left_MovesColumn(t *testing.T) {
 	updated, cmd := m.Update(msg)
 	newModel := updated.(Model)
 
-	if newModel.CurrentView().SelectedColumn != SortPID {
-		t.Errorf("SelectedColumn = %v, want SortPID after left", newModel.CurrentView().SelectedColumn)
+	// Left should do nothing outside sort mode
+	if newModel.CurrentView().SelectedColumn != SortProcess {
+		t.Errorf("SelectedColumn = %v, want SortProcess (unchanged) outside sort mode", newModel.CurrentView().SelectedColumn)
 	}
 	if cmd != nil {
 		t.Error("cmd should be nil")
 	}
 }
 
-func TestUpdate_KeyMsg_Right_MovesColumn(t *testing.T) {
+func TestUpdate_KeyMsg_Right_DoesNothingOutsideSortMode(t *testing.T) {
 	m := createTestModel()
 	m.CurrentView().SelectedColumn = SortPID // Column index 0
 
@@ -201,8 +202,43 @@ func TestUpdate_KeyMsg_Right_MovesColumn(t *testing.T) {
 	updated, cmd := m.Update(msg)
 	newModel := updated.(Model)
 
+	// Right should do nothing outside sort mode
+	if newModel.CurrentView().SelectedColumn != SortPID {
+		t.Errorf("SelectedColumn = %v, want SortPID (unchanged) outside sort mode", newModel.CurrentView().SelectedColumn)
+	}
+	if cmd != nil {
+		t.Error("cmd should be nil")
+	}
+}
+
+func TestUpdate_KeyMsg_Left_MovesColumnInSortMode(t *testing.T) {
+	m := createTestModel()
+	m.CurrentView().SelectedColumn = SortProcess // Column index 1
+	m.CurrentView().SortMode = true
+
+	msg := tea.KeyMsg{Type: tea.KeyLeft}
+	updated, cmd := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.CurrentView().SelectedColumn != SortPID {
+		t.Errorf("SelectedColumn = %v, want SortPID after left in sort mode", newModel.CurrentView().SelectedColumn)
+	}
+	if cmd != nil {
+		t.Error("cmd should be nil")
+	}
+}
+
+func TestUpdate_KeyMsg_Right_MovesColumnInSortMode(t *testing.T) {
+	m := createTestModel()
+	m.CurrentView().SelectedColumn = SortPID // Column index 0
+	m.CurrentView().SortMode = true
+
+	msg := tea.KeyMsg{Type: tea.KeyRight}
+	updated, cmd := m.Update(msg)
+	newModel := updated.(Model)
+
 	if newModel.CurrentView().SelectedColumn != SortProcess {
-		t.Errorf("SelectedColumn = %v, want SortProcess after right", newModel.CurrentView().SelectedColumn)
+		t.Errorf("SelectedColumn = %v, want SortProcess after right in sort mode", newModel.CurrentView().SelectedColumn)
 	}
 	if cmd != nil {
 		t.Error("cmd should be nil")
@@ -394,9 +430,9 @@ func TestUpdate_NilSnapshot_Down(t *testing.T) {
 	}
 }
 
-func TestConnectionsLevel_SortOnEnter(t *testing.T) {
+func TestConnectionsLevel_SortOnEnterInSortMode(t *testing.T) {
 	m := createTestModel()
-	// Push to connections level
+	// Push to connections level in sort mode
 	m.PushView(ViewState{
 		Level:          LevelConnections,
 		ProcessName:    "App1",
@@ -404,6 +440,7 @@ func TestConnectionsLevel_SortOnEnter(t *testing.T) {
 		SortColumn:     SortLocal,
 		SortAscending:  true,
 		SelectedColumn: SortRemote,
+		SortMode:       true,
 	})
 
 	msg := tea.KeyMsg{Type: tea.KeyEnter}
@@ -412,13 +449,17 @@ func TestConnectionsLevel_SortOnEnter(t *testing.T) {
 
 	// Should have changed sort column
 	if newModel.CurrentView().SortColumn != SortRemote {
-		t.Errorf("sortColumn = %v, want SortRemote after Enter", newModel.CurrentView().SortColumn)
+		t.Errorf("sortColumn = %v, want SortRemote after Enter in sort mode", newModel.CurrentView().SortColumn)
+	}
+	// Should have exited sort mode
+	if newModel.CurrentView().SortMode {
+		t.Error("SortMode should be false after applying sort")
 	}
 }
 
-func TestConnectionsLevel_SortToggleDirection(t *testing.T) {
+func TestConnectionsLevel_SortToggleDirectionInSortMode(t *testing.T) {
 	m := createTestModel()
-	// Push to connections level with sort column same as selected
+	// Push to connections level with sort column same as selected, in sort mode
 	m.PushView(ViewState{
 		Level:          LevelConnections,
 		ProcessName:    "App1",
@@ -426,6 +467,7 @@ func TestConnectionsLevel_SortToggleDirection(t *testing.T) {
 		SortColumn:     SortLocal,
 		SortAscending:  true,
 		SelectedColumn: SortLocal, // Same as sort column
+		SortMode:       true,
 	})
 
 	msg := tea.KeyMsg{Type: tea.KeyEnter}
@@ -434,6 +476,92 @@ func TestConnectionsLevel_SortToggleDirection(t *testing.T) {
 
 	if newModel.CurrentView().SortAscending {
 		t.Error("sortAscending should be false after toggling")
+	}
+	// Should have exited sort mode
+	if newModel.CurrentView().SortMode {
+		t.Error("SortMode should be false after applying sort")
+	}
+}
+
+func TestConnectionsLevel_EnterDoesNothingOutsideSortMode(t *testing.T) {
+	m := createTestModel()
+	// Push to connections level without sort mode
+	m.PushView(ViewState{
+		Level:          LevelConnections,
+		ProcessName:    "App1",
+		Cursor:         0,
+		SortColumn:     SortLocal,
+		SortAscending:  true,
+		SelectedColumn: SortRemote,
+		SortMode:       false,
+	})
+
+	msg := tea.KeyMsg{Type: tea.KeyEnter}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	// Should NOT have changed sort column (Enter does nothing on connections without sort mode)
+	if newModel.CurrentView().SortColumn != SortLocal {
+		t.Errorf("sortColumn = %v, want SortLocal (unchanged) outside sort mode", newModel.CurrentView().SortColumn)
+	}
+}
+
+func TestSortMode_SKeyEntersSortMode(t *testing.T) {
+	m := createTestModel()
+	m.CurrentView().SortColumn = SortProcess
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if !newModel.CurrentView().SortMode {
+		t.Error("SortMode should be true after pressing 's'")
+	}
+	// SelectedColumn should be set to current SortColumn
+	if newModel.CurrentView().SelectedColumn != SortProcess {
+		t.Errorf("SelectedColumn = %v, want SortProcess (same as SortColumn)", newModel.CurrentView().SelectedColumn)
+	}
+}
+
+func TestSortMode_EscCancelsSortMode(t *testing.T) {
+	m := createTestModel()
+	m.CurrentView().SortMode = true
+	m.CurrentView().SortColumn = SortProcess
+	m.CurrentView().SelectedColumn = SortConns // Different from SortColumn
+
+	msg := tea.KeyMsg{Type: tea.KeyEsc}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.CurrentView().SortMode {
+		t.Error("SortMode should be false after pressing Esc")
+	}
+	// SortColumn should be unchanged (cancel didn't apply the new column)
+	if newModel.CurrentView().SortColumn != SortProcess {
+		t.Errorf("SortColumn = %v, want SortProcess (unchanged after cancel)", newModel.CurrentView().SortColumn)
+	}
+	// Should NOT pop view - still at root level
+	if len(newModel.stack) != 1 {
+		t.Errorf("stack length = %d, want 1 (Esc in sort mode shouldn't pop)", len(newModel.stack))
+	}
+}
+
+func TestSortMode_SKeyIsNoOpWhenAlreadyInSortMode(t *testing.T) {
+	m := createTestModel()
+	m.CurrentView().SortMode = true
+	m.CurrentView().SelectedColumn = SortConns
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	// Should still be in sort mode
+	if !newModel.CurrentView().SortMode {
+		t.Error("SortMode should still be true")
+	}
+	// SelectedColumn should be unchanged
+	if newModel.CurrentView().SelectedColumn != SortConns {
+		t.Errorf("SelectedColumn = %v, want SortConns (unchanged)", newModel.CurrentView().SelectedColumn)
 	}
 }
 

@@ -97,6 +97,7 @@ type ViewState struct {
 	SortColumn     SortColumn // Current sort column
 	SortAscending  bool       // Sort direction
 	SelectedColumn SortColumn // Currently selected column for navigation
+	SortMode       bool       // Whether sort mode is active
 }
 
 // Model is the Bubble Tea model for the network monitor.

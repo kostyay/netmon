@@ -245,12 +245,23 @@ func (m Model) renderKeybindingsText() string {
 		return ""
 	}
 
+	// Sort mode has its own keybindings
+	if view.SortMode {
+		parts = []string{
+			descStyle.Render("[SORT MODE]"),
+			keyStyle.Render("←→") + descStyle.Render(" Column"),
+			keyStyle.Render("Enter") + descStyle.Render(" Sort"),
+			keyStyle.Render("Esc") + descStyle.Render(" Cancel"),
+		}
+		return strings.Join(parts, "  ")
+	}
+
 	switch view.Level {
 	case LevelProcessList:
 		parts = []string{
 			keyStyle.Render("↑↓") + descStyle.Render(" Navigate"),
-			keyStyle.Render("←→") + descStyle.Render(" Column"),
 			keyStyle.Render("Enter") + descStyle.Render(" Drill-in"),
+			keyStyle.Render("s") + descStyle.Render(" Sort"),
 			keyStyle.Render("v") + descStyle.Render(" All"),
 			keyStyle.Render("+/-") + descStyle.Render(" Refresh"),
 			keyStyle.Render("q") + descStyle.Render(" Quit"),
@@ -258,8 +269,7 @@ func (m Model) renderKeybindingsText() string {
 	case LevelConnections:
 		parts = []string{
 			keyStyle.Render("↑↓") + descStyle.Render(" Navigate"),
-			keyStyle.Render("←→") + descStyle.Render(" Column"),
-			keyStyle.Render("Enter") + descStyle.Render(" Sort"),
+			keyStyle.Render("s") + descStyle.Render(" Sort"),
 			keyStyle.Render("Esc") + descStyle.Render(" Back"),
 			keyStyle.Render("v") + descStyle.Render(" All"),
 			keyStyle.Render("+/-") + descStyle.Render(" Refresh"),
@@ -268,8 +278,7 @@ func (m Model) renderKeybindingsText() string {
 	case LevelAllConnections:
 		parts = []string{
 			keyStyle.Render("↑↓") + descStyle.Render(" Navigate"),
-			keyStyle.Render("←→") + descStyle.Render(" Column"),
-			keyStyle.Render("Enter") + descStyle.Render(" Sort"),
+			keyStyle.Render("s") + descStyle.Render(" Sort"),
 			keyStyle.Render("v") + descStyle.Render(" Grouped"),
 			keyStyle.Render("+/-") + descStyle.Render(" Refresh"),
 			keyStyle.Render("q") + descStyle.Render(" Quit"),
