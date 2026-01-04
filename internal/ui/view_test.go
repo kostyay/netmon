@@ -17,6 +17,19 @@ func initViewport(m *Model) {
 	m.height = 26
 }
 
+func initViewportWithStack(m *Model) {
+	initViewport(m)
+	if len(m.stack) == 0 {
+		m.stack = []ViewState{{
+			Level:          LevelProcessList,
+			Cursor:         0,
+			SortColumn:     SortProcess,
+			SortAscending:  true,
+			SelectedColumn: SortProcess,
+		}}
+	}
+}
+
 func TestFormatPIDs_Empty(t *testing.T) {
 	got := formatPIDs([]int32{})
 	if got != "" {
@@ -138,7 +151,7 @@ func TestView_NilSnapshot(t *testing.T) {
 		snapshot: nil,
 		quitting: false,
 	}
-	initViewport(&m)
+	initViewportWithStack(&m)
 
 	view := m.View()
 
@@ -155,7 +168,7 @@ func TestView_EmptyApplications(t *testing.T) {
 		},
 		quitting: false,
 	}
-	initViewport(&m)
+	initViewportWithStack(&m)
 
 	view := m.View()
 
@@ -178,19 +191,14 @@ func TestView_WithApplications(t *testing.T) {
 			},
 			Timestamp: time.Now(),
 		},
-		cursor:       0,
-		quitting:     false,
-		expandedApps: make(map[string]bool),
+		quitting: false,
 	}
-	initViewport(&m)
+	initViewportWithStack(&m)
 
 	view := m.View()
 
 	if !strings.Contains(view, "TestApp") {
 		t.Error("View() should contain app name 'TestApp'")
-	}
-	if !strings.Contains(view, "1 connections") {
-		t.Error("View() should contain connection count")
 	}
 }
 
@@ -199,7 +207,7 @@ func TestView_ContainsHeader(t *testing.T) {
 		snapshot: nil,
 		quitting: false,
 	}
-	initViewport(&m)
+	initViewportWithStack(&m)
 
 	view := m.View()
 
@@ -213,7 +221,7 @@ func TestView_ContainsFooter(t *testing.T) {
 		snapshot: nil,
 		quitting: false,
 	}
-	initViewport(&m)
+	initViewportWithStack(&m)
 
 	view := m.View()
 
@@ -228,7 +236,7 @@ func TestView_ContainsRefreshRate(t *testing.T) {
 		quitting:        false,
 		refreshInterval: 2 * time.Second,
 	}
-	initViewport(&m)
+	initViewportWithStack(&m)
 
 	view := m.View()
 
@@ -237,21 +245,23 @@ func TestView_ContainsRefreshRate(t *testing.T) {
 	}
 }
 
-func TestRenderApplications_Empty(t *testing.T) {
+func TestRenderProcessList_Empty(t *testing.T) {
 	m := Model{
 		snapshot: &model.NetworkSnapshot{
 			Applications: []model.Application{},
 		},
+		stack: []ViewState{{Level: LevelProcessList, Cursor: 0}},
 	}
 
-	result := m.renderApplications()
+	result := m.renderProcessList()
 
-	if result != "" {
-		t.Errorf("renderApplications() with empty apps should be empty, got %q", result)
+	// Should still have summary
+	if !strings.Contains(result, "Showing 0 connections") {
+		t.Error("renderProcessList() with empty apps should show 0 connections")
 	}
 }
 
-func TestRenderApplications_SingleApp(t *testing.T) {
+func TestRenderProcessList_SingleApp(t *testing.T) {
 	m := Model{
 		snapshot: &model.NetworkSnapshot{
 			Applications: []model.Application{
@@ -264,510 +274,285 @@ func TestRenderApplications_SingleApp(t *testing.T) {
 				},
 			},
 		},
-		cursor:       0,
-		expandedApps: make(map[string]bool),
+		stack: []ViewState{{Level: LevelProcessList, Cursor: 0}},
 	}
 
-	result := m.renderApplications()
+	result := m.renderProcessList()
 
 	if !strings.Contains(result, "App1") {
-		t.Error("renderApplications() should contain app name")
+		t.Error("renderProcessList() should contain app name")
 	}
 }
 
-func TestRenderApplications_ExpandedApp(t *testing.T) {
-	expandedApps := make(map[string]bool)
-	expandedApps["ExpandedApp"] = true
-
+func TestRenderConnectionsList(t *testing.T) {
 	m := Model{
 		snapshot: &model.NetworkSnapshot{
 			Applications: []model.Application{
 				{
-					Name: "ExpandedApp",
+					Name: "TestApp",
 					PIDs: []int32{100},
 					Connections: []model.Connection{
-						{Protocol: model.ProtocolTCP, LocalAddr: "127.0.0.1:80", RemoteAddr: "10.0.0.1:443", State: model.StateEstablished},
+						{Protocol: model.ProtocolTCP, LocalAddr: "127.0.0.1:80", RemoteAddr: "10.0.0.1:443", State: model.StateEstablished, PID: 100},
 					},
 				},
 			},
 		},
-		cursor:       0,
-		expandedApps: expandedApps,
+		stack: []ViewState{{
+			Level:       LevelConnections,
+			ProcessName: "TestApp",
+			Cursor:      0,
+			SortColumn:  SortLocal,
+		}},
 	}
 
-	result := m.renderApplications()
+	result := m.renderConnectionsList()
 
-	// Should show the expand icon ▼
-	if !strings.Contains(result, "▼") {
-		t.Error("Expanded app should show ▼ icon")
-	}
-	// Should show connection details
-	if !strings.Contains(result, "TCP") {
-		t.Error("Expanded app should show connection protocol")
-	}
-}
-
-func TestRenderApplications_CollapsedApp(t *testing.T) {
-	m := Model{
-		snapshot: &model.NetworkSnapshot{
-			Applications: []model.Application{
-				{
-					Name: "CollapsedApp",
-					PIDs: []int32{100},
-					Connections: []model.Connection{
-						{Protocol: model.ProtocolTCP, LocalAddr: "127.0.0.1:80", RemoteAddr: "10.0.0.1:443", State: model.StateEstablished},
-					},
-				},
-			},
-		},
-		cursor:       0,
-		expandedApps: make(map[string]bool), // Not expanded
-	}
-
-	result := m.renderApplications()
-
-	// Should show the collapsed icon ▶
-	if !strings.Contains(result, "▶") {
-		t.Error("Collapsed app should show ▶ icon")
-	}
-}
-
-func TestRenderAppHeader_Collapsed(t *testing.T) {
-	m := Model{cursor: 0, expandedApps: make(map[string]bool)}
-	app := model.Application{
-		Name:        "TestApp",
-		PIDs:        []int32{1234},
-		Connections: []model.Connection{{Protocol: model.ProtocolTCP}},
-	}
-
-	result := m.renderAppHeader(app, false)
-
-	if !strings.Contains(result, "▶") {
-		t.Error("Collapsed app header should contain ▶")
-	}
 	if !strings.Contains(result, "TestApp") {
-		t.Error("App header should contain app name")
+		t.Error("renderConnectionsList() should contain process name")
+	}
+	if !strings.Contains(result, "TCP") {
+		t.Error("renderConnectionsList() should contain protocol")
+	}
+	if !strings.Contains(result, "127.0.0.1:80") {
+		t.Error("renderConnectionsList() should contain local addr")
 	}
 }
 
-func TestRenderAppHeader_Expanded(t *testing.T) {
-	expandedApps := make(map[string]bool)
-	expandedApps["TestApp"] = true
-	m := Model{cursor: 0, expandedApps: expandedApps}
-	app := model.Application{
-		Name:        "TestApp",
-		PIDs:        []int32{1234},
-		Connections: []model.Connection{{Protocol: model.ProtocolTCP}},
+func TestRenderConnectionsList_ProcessNotFound(t *testing.T) {
+	m := Model{
+		snapshot: &model.NetworkSnapshot{
+			Applications: []model.Application{
+				{Name: "OtherApp"},
+			},
+		},
+		stack: []ViewState{{
+			Level:       LevelConnections,
+			ProcessName: "MissingApp",
+		}},
 	}
 
-	result := m.renderAppHeader(app, false)
+	result := m.renderConnectionsList()
 
-	if !strings.Contains(result, "▼") {
-		t.Error("Expanded app header should contain ▼")
+	if !strings.Contains(result, "Process not found") {
+		t.Error("renderConnectionsList() should show 'Process not found' for missing process")
 	}
 }
 
-func TestRenderAppHeader_ConnectionCount(t *testing.T) {
-	m := Model{cursor: 0}
-	app := model.Application{
-		Name: "TestApp",
-		PIDs: []int32{1234},
-		Connections: []model.Connection{
-			{Protocol: "TCP"},
-			{Protocol: "UDP"},
-			{Protocol: "TCP"},
+func TestRenderBreadcrumbs_ProcessList(t *testing.T) {
+	m := Model{
+		refreshInterval: 2 * time.Second,
+		stack:           []ViewState{{Level: LevelProcessList}},
+	}
+
+	result := m.renderBreadcrumbs()
+
+	if !strings.Contains(result, "Processes") {
+		t.Error("Breadcrumbs should contain 'Processes'")
+	}
+	if !strings.Contains(result, "Refresh:") {
+		t.Error("Breadcrumbs should contain refresh rate")
+	}
+}
+
+func TestRenderBreadcrumbs_ConnectionsLevel(t *testing.T) {
+	m := Model{
+		refreshInterval: 2 * time.Second,
+		stack: []ViewState{
+			{Level: LevelProcessList},
+			{Level: LevelConnections, ProcessName: "Chrome"},
 		},
 	}
 
-	result := m.renderAppHeader(app, false)
+	result := m.renderBreadcrumbs()
 
-	if !strings.Contains(result, "3 connections") {
-		t.Error("App header should show connection count")
+	if !strings.Contains(result, "Processes") {
+		t.Error("Breadcrumbs should contain 'Processes'")
+	}
+	if !strings.Contains(result, "Chrome") {
+		t.Error("Breadcrumbs should contain 'Chrome'")
 	}
 }
 
-func TestRenderConnection_TCP(t *testing.T) {
-	m := Model{}
-	conn := model.Connection{
-		Protocol:   "TCP",
-		LocalAddr:  "127.0.0.1:8080",
-		RemoteAddr: "10.0.0.1:443",
-		State:      "ESTABLISHED",
-	}
-
-	result := m.renderConnection(conn, false)
-
-	if !strings.Contains(result, "TCP") {
-		t.Error("Connection should show protocol")
-	}
-	if !strings.Contains(result, "127.0.0.1:8080") {
-		t.Error("Connection should show local addr")
-	}
-	if !strings.Contains(result, "10.0.0.1:443") {
-		t.Error("Connection should show remote addr")
-	}
-	if !strings.Contains(result, "ESTABLISHED") {
-		t.Error("Connection should show state")
-	}
-}
-
-func TestRenderConnection_UDP(t *testing.T) {
-	m := Model{}
-	conn := model.Connection{
-		Protocol:   "UDP",
-		LocalAddr:  "0.0.0.0:53",
-		RemoteAddr: "*",
-		State:      "-",
-	}
-
-	result := m.renderConnection(conn, false)
-
-	if !strings.Contains(result, "UDP") {
-		t.Error("Connection should show UDP protocol")
-	}
-}
-
-// Table view rendering tests
-
-func TestRenderTableHeader(t *testing.T) {
+func TestRenderProcessListHeader(t *testing.T) {
 	m := Model{
-		sortColumn:     SortProcess,
-		selectedColumn: SortPID,
-		sortAscending:  true,
-		width:          80,
+		stack: []ViewState{{
+			Level:          LevelProcessList,
+			SelectedColumn: SortPID,
+		}},
 	}
 
-	result := m.renderTableHeader()
+	result := m.renderProcessListHeader()
 
-	// Should contain column headers (without [1], [2] prefixes)
-	if !strings.Contains(result, "PID") {
-		t.Error("Table header should contain PID")
-	}
 	if !strings.Contains(result, "Process") {
-		t.Error("Table header should contain Process")
+		t.Error("Header should contain 'Process'")
 	}
+	if !strings.Contains(result, "Conns") {
+		t.Error("Header should contain 'Conns'")
+	}
+	if !strings.Contains(result, "ESTAB") {
+		t.Error("Header should contain 'ESTAB'")
+	}
+	if !strings.Contains(result, "LISTEN") {
+		t.Error("Header should contain 'LISTEN'")
+	}
+}
+
+func TestRenderConnectionsHeader(t *testing.T) {
+	m := Model{
+		stack: []ViewState{{
+			Level:          LevelConnections,
+			SortColumn:     SortLocal,
+			SortAscending:  true,
+			SelectedColumn: SortLocal,
+		}},
+	}
+
+	result := m.renderConnectionsHeader()
+
 	if !strings.Contains(result, "Proto") {
-		t.Error("Table header should contain Proto")
+		t.Error("Header should contain 'Proto'")
 	}
 	if !strings.Contains(result, "Local") {
-		t.Error("Table header should contain Local")
+		t.Error("Header should contain 'Local'")
 	}
 	if !strings.Contains(result, "Remote") {
-		t.Error("Table header should contain Remote")
+		t.Error("Header should contain 'Remote'")
 	}
 	if !strings.Contains(result, "State") {
-		t.Error("Table header should contain State")
+		t.Error("Header should contain 'State'")
 	}
-
-	// Should contain ascending indicator (↑) for active sort column
+	if !strings.Contains(result, "PID") {
+		t.Error("Header should contain 'PID'")
+	}
 	if !strings.Contains(result, "↑") {
-		t.Error("Table header should contain ascending indicator ↑")
-	}
-
-	// Should NOT contain old-style prefixes
-	if strings.Contains(result, "[1]") {
-		t.Error("Table header should not contain [1] prefix")
+		t.Error("Header should contain ascending sort indicator")
 	}
 }
 
-func TestRenderTableHeader_DescendingSort(t *testing.T) {
+func TestRenderConnectionsHeader_Descending(t *testing.T) {
 	m := Model{
-		sortColumn:     SortProtocol,
-		selectedColumn: SortProtocol,
-		sortAscending:  false,
-		width:          80,
+		stack: []ViewState{{
+			Level:          LevelConnections,
+			SortColumn:     SortRemote,
+			SortAscending:  false,
+			SelectedColumn: SortRemote,
+		}},
 	}
 
-	result := m.renderTableHeader()
+	result := m.renderConnectionsHeader()
 
-	// Should contain descending indicator (↓)
 	if !strings.Contains(result, "↓") {
-		t.Error("Table header should contain descending indicator ↓")
+		t.Error("Header should contain descending sort indicator")
 	}
 }
 
-func TestRenderTableHeader_SelectedColumn(t *testing.T) {
+func TestSortConnectionsForView(t *testing.T) {
 	m := Model{
-		sortColumn:     SortProcess,
-		selectedColumn: SortRemote, // Different column selected
-		sortAscending:  true,
-		width:          80,
+		stack: []ViewState{{
+			SortColumn:    SortLocal,
+			SortAscending: true,
+		}},
 	}
 
-	result := m.renderTableHeader()
-
-	// Result should contain Remote column (selected) styled differently
-	// Both columns should be present
-	if !strings.Contains(result, "Process") {
-		t.Error("Table header should contain Process")
+	conns := []model.Connection{
+		{LocalAddr: "192.168.1.1:80", Protocol: "TCP"},
+		{LocalAddr: "127.0.0.1:80", Protocol: "TCP"},
+		{LocalAddr: "10.0.0.1:80", Protocol: "TCP"},
 	}
-	if !strings.Contains(result, "Remote") {
-		t.Error("Table header should contain Remote")
+
+	result := m.sortConnectionsForView(conns)
+
+	if result[0].LocalAddr != "10.0.0.1:80" {
+		t.Errorf("First item should be 10.0.0.1:80, got %s", result[0].LocalAddr)
+	}
+	if result[1].LocalAddr != "127.0.0.1:80" {
+		t.Errorf("Second item should be 127.0.0.1:80, got %s", result[1].LocalAddr)
 	}
 }
 
-func TestRenderTable(t *testing.T) {
+func TestSortConnectionsForView_Descending(t *testing.T) {
 	m := Model{
-		snapshot: &model.NetworkSnapshot{
-			Applications: []model.Application{
-				{
-					Name: "Chrome",
-					PIDs: []int32{100},
-					Connections: []model.Connection{
-						{Protocol: "TCP", LocalAddr: "127.0.0.1:8080", RemoteAddr: "10.0.0.1:443", State: "ESTABLISHED"},
-					},
-				},
-				{
-					Name: "Firefox",
-					PIDs: []int32{200},
-					Connections: []model.Connection{
-						{Protocol: "UDP", LocalAddr: "0.0.0.0:53", RemoteAddr: "*", State: "-"},
-					},
-				},
-			},
-		},
-		sortColumn:    SortProcess,
-		sortAscending: true,
-		tableCursor:   0,
-		width:         80,
+		stack: []ViewState{{
+			SortColumn:    SortProtocol,
+			SortAscending: false,
+		}},
 	}
 
-	result := m.renderTable()
-
-	// Should contain process names
-	if !strings.Contains(result, "Chrome") {
-		t.Error("Table should contain 'Chrome'")
-	}
-	if !strings.Contains(result, "Firefox") {
-		t.Error("Table should contain 'Firefox'")
+	conns := []model.Connection{
+		{Protocol: "TCP"},
+		{Protocol: "UDP"},
 	}
 
-	// Should contain connection details
-	if !strings.Contains(result, "TCP") {
-		t.Error("Table should contain protocol")
-	}
+	result := m.sortConnectionsForView(conns)
 
-	// Should contain selection marker on first row
-	if !strings.Contains(result, "▶") {
-		t.Error("Table should contain selection marker")
-	}
-
-	// Should contain summary
-	if !strings.Contains(result, "Showing 2 connections") {
-		t.Error("Table should contain connection count summary")
+	if result[0].Protocol != "UDP" {
+		t.Errorf("First item should be UDP (descending), got %s", result[0].Protocol)
 	}
 }
 
-func TestFlattenConnections(t *testing.T) {
-	m := Model{
-		snapshot: &model.NetworkSnapshot{
-			Applications: []model.Application{
-				{
-					Name: "App1",
-					PIDs: []int32{100},
-					Connections: []model.Connection{
-						{Protocol: "TCP"},
-						{Protocol: "UDP"},
-					},
-				},
-				{
-					Name: "App2",
-					PIDs: []int32{200},
-					Connections: []model.Connection{
-						{Protocol: "TCP"},
-					},
-				},
-			},
-		},
+func TestFormatBytes(t *testing.T) {
+	tests := []struct {
+		bytes uint64
+		want  string
+	}{
+		{0, "0 B"},
+		{500, "500 B"},
+		{1024, "1.0 KB"},
+		{1536, "1.5 KB"},
+		{1048576, "1.0 MB"},
+		{1572864, "1.5 MB"},
+		{1073741824, "1.0 GB"},
+		{1099511627776, "1.0 TB"},
 	}
 
-	result := m.flattenConnections()
-
-	if len(result) != 3 {
-		t.Errorf("flattenConnections() returned %d items, want 3", len(result))
-	}
-
-	// Verify process names are attached
-	if result[0].ProcessName != "App1" || result[1].ProcessName != "App1" {
-		t.Error("First two connections should have ProcessName 'App1'")
-	}
-	if result[2].ProcessName != "App2" {
-		t.Error("Third connection should have ProcessName 'App2'")
+	for _, tt := range tests {
+		got := formatBytes(tt.bytes)
+		if got != tt.want {
+			t.Errorf("formatBytes(%d) = %s, want %s", tt.bytes, got, tt.want)
+		}
 	}
 }
 
-func TestFlattenConnections_NilSnapshot(t *testing.T) {
-	m := Model{snapshot: nil}
-
-	result := m.flattenConnections()
-
-	if result != nil {
-		t.Error("flattenConnections() with nil snapshot should return nil")
+func TestFormatBytesOrDash_Nil(t *testing.T) {
+	result := formatBytesOrDash(nil, true)
+	if result != "--" {
+		t.Errorf("formatBytesOrDash(nil) = %s, want --", result)
 	}
 }
 
-func TestSortConnections_ByProcess(t *testing.T) {
-	m := Model{
-		sortColumn:    SortProcess,
-		sortAscending: true,
-	}
-
-	conns := []FlatConnection{
-		{ProcessName: "Zebra", Connection: model.Connection{Protocol: "TCP"}},
-		{ProcessName: "Alpha", Connection: model.Connection{Protocol: "UDP"}},
-		{ProcessName: "Beta", Connection: model.Connection{Protocol: "TCP"}},
-	}
-
-	result := m.sortConnections(conns)
-
-	if result[0].ProcessName != "Alpha" {
-		t.Errorf("First item should be Alpha, got %s", result[0].ProcessName)
-	}
-	if result[1].ProcessName != "Beta" {
-		t.Errorf("Second item should be Beta, got %s", result[1].ProcessName)
-	}
-	if result[2].ProcessName != "Zebra" {
-		t.Errorf("Third item should be Zebra, got %s", result[2].ProcessName)
+func TestFormatBytesOrDash_Sent(t *testing.T) {
+	stats := &model.NetIOStats{BytesSent: 1024, BytesRecv: 2048}
+	result := formatBytesOrDash(stats, true)
+	if result != "1.0 KB" {
+		t.Errorf("formatBytesOrDash(stats, true) = %s, want 1.0 KB", result)
 	}
 }
 
-func TestSortConnections_ByProcessDescending(t *testing.T) {
-	m := Model{
-		sortColumn:    SortProcess,
-		sortAscending: false,
-	}
-
-	conns := []FlatConnection{
-		{ProcessName: "Alpha", Connection: model.Connection{}},
-		{ProcessName: "Zebra", Connection: model.Connection{}},
-		{ProcessName: "Beta", Connection: model.Connection{}},
-	}
-
-	result := m.sortConnections(conns)
-
-	if result[0].ProcessName != "Zebra" {
-		t.Errorf("First item should be Zebra (descending), got %s", result[0].ProcessName)
+func TestFormatBytesOrDash_Recv(t *testing.T) {
+	stats := &model.NetIOStats{BytesSent: 1024, BytesRecv: 2048}
+	result := formatBytesOrDash(stats, false)
+	if result != "2.0 KB" {
+		t.Errorf("formatBytesOrDash(stats, false) = %s, want 2.0 KB", result)
 	}
 }
 
-func TestSortConnections_ByProtocol(t *testing.T) {
-	m := Model{
-		sortColumn:    SortProtocol,
-		sortAscending: true,
+func TestTruncateString(t *testing.T) {
+	tests := []struct {
+		s      string
+		maxLen int
+		want   string
+	}{
+		{"short", 10, "short"},
+		{"exactly10!", 10, "exactly10!"},
+		{"toolongstring", 10, "toolong..."},
+		{"abc", 3, "abc"},
+		{"abcd", 3, "abc"},
 	}
 
-	conns := []FlatConnection{
-		{ProcessName: "App", Connection: model.Connection{Protocol: "UDP"}},
-		{ProcessName: "App", Connection: model.Connection{Protocol: "TCP"}},
-	}
-
-	result := m.sortConnections(conns)
-
-	if result[0].Connection.Protocol != "TCP" {
-		t.Errorf("First item should be TCP, got %s", result[0].Connection.Protocol)
-	}
-}
-
-func TestSortConnections_ByState(t *testing.T) {
-	m := Model{
-		sortColumn:    SortState,
-		sortAscending: true,
-	}
-
-	conns := []FlatConnection{
-		{ProcessName: "App", Connection: model.Connection{State: "TIME_WAIT"}},
-		{ProcessName: "App", Connection: model.Connection{State: "ESTABLISHED"}},
-		{ProcessName: "App", Connection: model.Connection{State: "LISTEN"}},
-	}
-
-	result := m.sortConnections(conns)
-
-	if result[0].Connection.State != "ESTABLISHED" {
-		t.Errorf("First item should be ESTABLISHED, got %s", result[0].Connection.State)
-	}
-}
-
-func TestSortConnections_DoesNotMutateInput(t *testing.T) {
-	m := Model{
-		sortColumn:    SortProcess,
-		sortAscending: true,
-	}
-
-	conns := []FlatConnection{
-		{ProcessName: "Zebra", Connection: model.Connection{}},
-		{ProcessName: "Alpha", Connection: model.Connection{}},
-	}
-
-	m.sortConnections(conns)
-
-	// Original slice should be unchanged
-	if conns[0].ProcessName != "Zebra" {
-		t.Error("sortConnections should not mutate input slice")
-	}
-}
-
-func TestTableViewSelection(t *testing.T) {
-	m := Model{
-		snapshot: &model.NetworkSnapshot{
-			Applications: []model.Application{
-				{
-					Name: "App1",
-					PIDs: []int32{100},
-					Connections: []model.Connection{
-						{Protocol: "TCP", State: "ESTABLISHED"},
-						{Protocol: "UDP", State: "-"},
-					},
-				},
-			},
-		},
-		sortColumn:    SortProcess,
-		sortAscending: true,
-		tableCursor:   1, // Second row selected
-		width:         80,
-	}
-
-	result := m.renderTable()
-
-	// Count occurrences of ▶
-	count := strings.Count(result, "▶")
-	if count != 1 {
-		t.Errorf("Expected exactly 1 selection marker, got %d", count)
-	}
-}
-
-func TestSortConnections_ByLocalAddress(t *testing.T) {
-	m := Model{
-		sortColumn:    SortLocal,
-		sortAscending: true,
-	}
-
-	conns := []FlatConnection{
-		{ProcessName: "App", Connection: model.Connection{LocalAddr: "192.168.1.100:8080"}},
-		{ProcessName: "App", Connection: model.Connection{LocalAddr: "127.0.0.1:80"}},
-		{ProcessName: "App", Connection: model.Connection{LocalAddr: "10.0.0.1:443"}},
-	}
-
-	result := m.sortConnections(conns)
-
-	if result[0].Connection.LocalAddr != "10.0.0.1:443" {
-		t.Errorf("First item should be 10.0.0.1:443, got %s", result[0].Connection.LocalAddr)
-	}
-}
-
-func TestSortConnections_ByRemoteAddress(t *testing.T) {
-	m := Model{
-		sortColumn:    SortRemote,
-		sortAscending: true,
-	}
-
-	conns := []FlatConnection{
-		{ProcessName: "App", Connection: model.Connection{RemoteAddr: "google.com:443"}},
-		{ProcessName: "App", Connection: model.Connection{RemoteAddr: "api.github.com:443"}},
-	}
-
-	result := m.sortConnections(conns)
-
-	if result[0].Connection.RemoteAddr != "api.github.com:443" {
-		t.Errorf("First item should be api.github.com:443, got %s", result[0].Connection.RemoteAddr)
+	for _, tt := range tests {
+		got := truncateString(tt.s, tt.maxLen)
+		if got != tt.want {
+			t.Errorf("truncateString(%q, %d) = %q, want %q", tt.s, tt.maxLen, got, tt.want)
+		}
 	}
 }
