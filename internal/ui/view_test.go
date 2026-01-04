@@ -381,7 +381,9 @@ func TestRenderProcessListHeader(t *testing.T) {
 		}},
 	}
 
-	result := m.renderProcessListHeader()
+	columns := processListColumns()
+	widths := calculateColumnWidths(columns, 100)
+	result := m.renderProcessListHeader(widths)
 
 	if !strings.Contains(result, "Process") {
 		t.Error("Header should contain 'Process'")
@@ -407,7 +409,9 @@ func TestRenderConnectionsHeader(t *testing.T) {
 		}},
 	}
 
-	result := m.renderConnectionsHeader()
+	columns := connectionsColumns()
+	widths := calculateColumnWidths(columns, 100)
+	result := m.renderConnectionsHeader(widths)
 
 	if !strings.Contains(result, "Proto") {
 		t.Error("Header should contain 'Proto'")
@@ -437,7 +441,9 @@ func TestRenderConnectionsHeader_Descending(t *testing.T) {
 		}},
 	}
 
-	result := m.renderConnectionsHeader()
+	columns := connectionsColumns()
+	widths := calculateColumnWidths(columns, 100)
+	result := m.renderConnectionsHeader(widths)
 
 	if !strings.Contains(result, "↓") {
 		t.Error("Header should contain descending sort indicator")
