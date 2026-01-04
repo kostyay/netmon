@@ -37,6 +37,9 @@ func renderRow(content string, isSelected bool) string {
 func renderTableHeader(columns []columnDef, widths []int, selectedCol, sortCol SortColumn, sortAsc, showSort bool) string {
 	var b strings.Builder
 
+	// Add 2-space prefix to align with data rows (which have "  " prefix from renderRow)
+	b.WriteString("  ")
+
 	headerStyle := TableHeaderStyle()
 	selectedStyle := TableHeaderSelectedStyle()
 	sortStyle := SortIndicatorStyle()
