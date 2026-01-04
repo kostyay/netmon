@@ -116,3 +116,114 @@ func FrameStyle(width, height int) lipgloss.Style {
 		Height(height - 2). // Account for border
 		Padding(0, 1)
 }
+
+// RenderFrameWithTitle renders content in a frame with a centered title on the top border.
+func RenderFrameWithTitle(content string, title string, width, height int) string {
+	borderColor := lipgloss.Color(config.CurrentTheme.Styles.Table.HeaderFgColor)
+	titleColor := lipgloss.Color(config.CurrentTheme.Styles.Header.TitleFg)
+
+	// Border characters for rounded border
+	topLeft := "╭"
+	topRight := "╮"
+	bottomLeft := "╰"
+	bottomRight := "╯"
+	horizontal := "─"
+	vertical := "│"
+
+	// Style for border characters
+	borderStyle := lipgloss.NewStyle().Foreground(borderColor)
+	titleStyle := lipgloss.NewStyle().Foreground(titleColor).Bold(true)
+
+	// Calculate inner width (content area without borders)
+	innerWidth := width - 2
+
+	// Build top border with centered title
+	titleWithPadding := " " + title + " "
+	titleLen := len(titleWithPadding)
+
+	// Calculate padding on each side of the title
+	remainingWidth := innerWidth - titleLen
+	if remainingWidth < 0 {
+		remainingWidth = 0
+		titleWithPadding = titleWithPadding[:innerWidth]
+		titleLen = innerWidth
+	}
+	leftPad := remainingWidth / 2
+	rightPad := remainingWidth - leftPad
+
+	topBorder := borderStyle.Render(topLeft)
+	topBorder += borderStyle.Render(repeatString(horizontal, leftPad))
+	topBorder += titleStyle.Render(titleWithPadding)
+	topBorder += borderStyle.Render(repeatString(horizontal, rightPad))
+	topBorder += borderStyle.Render(topRight)
+
+	// Build bottom border
+	bottomBorder := borderStyle.Render(bottomLeft)
+	bottomBorder += borderStyle.Render(repeatString(horizontal, innerWidth))
+	bottomBorder += borderStyle.Render(bottomRight)
+
+	// Style for content area with padding
+	contentStyle := lipgloss.NewStyle().
+		Width(innerWidth).
+		Height(height - 2).
+		Padding(0, 1)
+
+	styledContent := contentStyle.Render(content)
+
+	// Build complete frame
+	var result string
+	result = topBorder + "\n"
+
+	// Add content lines with vertical borders
+	lines := splitLines(styledContent)
+	for _, line := range lines {
+		// Ensure line is padded to inner width
+		result += borderStyle.Render(vertical) + padRight(line, innerWidth) + borderStyle.Render(vertical) + "\n"
+	}
+
+	result += bottomBorder
+
+	return result
+}
+
+// repeatString repeats a string n times.
+func repeatString(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	result := ""
+	for i := 0; i < n; i++ {
+		result += s
+	}
+	return result
+}
+
+// splitLines splits a string into lines.
+func splitLines(s string) []string {
+	var lines []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			lines = append(lines, s[start:i])
+			start = i + 1
+		}
+	}
+	if start < len(s) {
+		lines = append(lines, s[start:])
+	}
+	if len(lines) == 0 {
+		lines = []string{""}
+	}
+	return lines
+}
+
+// padRight pads a string to the specified width.
+func padRight(s string, width int) string {
+	// Use lipgloss to measure visible width (handles ANSI escape codes)
+	visibleWidth := lipgloss.Width(s)
+	if visibleWidth >= width {
+		return s
+	}
+	padding := width - visibleWidth
+	return s + repeatString(" ", padding)
+}
