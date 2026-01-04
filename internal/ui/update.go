@@ -6,16 +6,15 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/kostyay/netmon/internal/collector"
 )
-
-// Number of columns in table view for navigation bounds.
-const numColumns = 6
 
 // Init initializes the model.
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.tickCmd(),
 		m.fetchData(),
+		m.fetchNetIO(),
 	)
 }
 
@@ -47,84 +46,78 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "up", "k":
-			if m.viewMode == ViewGrouped {
-				if m.cursor > 0 {
-					m.cursor--
-					m.syncViewportToCursor()
-				}
-			} else {
-				// Table view: use tableCursor
-				if m.tableCursor > 0 {
-					m.tableCursor--
-					m.syncViewportToCursor()
-				}
+			view := m.CurrentView()
+			if view != nil && view.Cursor > 0 {
+				view.Cursor--
 			}
 			return m, nil
 
 		case "down", "j":
-			if m.viewMode == ViewGrouped {
-				if m.snapshot != nil && m.cursor < len(m.snapshot.Applications)-1 {
-					m.cursor++
-					m.syncViewportToCursor()
-				}
-			} else {
-				// Table view: use tableCursor
-				flatConns := m.flattenConnections()
-				if m.tableCursor < len(flatConns)-1 {
-					m.tableCursor++
-					m.syncViewportToCursor()
-				}
+			view := m.CurrentView()
+			if view == nil || m.snapshot == nil {
+				return m, nil
+			}
+			maxCursor := m.maxCursorForLevel(view.Level)
+			if view.Cursor < maxCursor-1 {
+				view.Cursor++
 			}
 			return m, nil
 
 		case "left", "h":
-			if m.viewMode == ViewGrouped {
-				// Collapse current app
-				if m.snapshot != nil && m.cursor < len(m.snapshot.Applications) {
-					m.expandedApps[m.snapshot.Applications[m.cursor].Name] = false
-					m.syncViewportToCursor()
-				}
-			} else {
-				// Table view: move column selection left
-				if m.selectedColumn > 0 {
-					m.selectedColumn--
-				}
+			view := m.CurrentView()
+			if view == nil {
+				return m, nil
+			}
+			// Move column selection left
+			if view.SelectedColumn > 0 {
+				view.SelectedColumn--
 			}
 			return m, nil
 
 		case "right", "l":
-			if m.viewMode == ViewGrouped {
-				// Expand current app
-				if m.snapshot != nil && m.cursor < len(m.snapshot.Applications) {
-					m.expandedApps[m.snapshot.Applications[m.cursor].Name] = true
-					m.syncViewportToCursor()
-				}
-			} else {
-				// Table view: move column selection right
-				if m.selectedColumn < numColumns-1 {
-					m.selectedColumn++
-				}
+			view := m.CurrentView()
+			if view == nil {
+				return m, nil
+			}
+			// Move column selection right
+			maxCol := m.maxColumnForLevel(view.Level)
+			if int(view.SelectedColumn) < maxCol-1 {
+				view.SelectedColumn++
 			}
 			return m, nil
 
 		case "enter", " ":
-			if m.viewMode == ViewGrouped {
-				// Expand current app
-				if m.snapshot != nil && m.cursor < len(m.snapshot.Applications) {
-					m.expandedApps[m.snapshot.Applications[m.cursor].Name] = true
-					m.syncViewportToCursor()
+			view := m.CurrentView()
+			if view == nil || m.snapshot == nil {
+				return m, nil
+			}
+			if view.Level == LevelProcessList {
+				// Push to connections view for selected process
+				if view.Cursor < len(m.snapshot.Applications) {
+					app := m.snapshot.Applications[view.Cursor]
+					m.PushView(ViewState{
+						Level:          LevelConnections,
+						ProcessName:    app.Name,
+						Cursor:         0,
+						SortColumn:     SortLocal,
+						SortAscending:  true,
+						SelectedColumn: SortLocal,
+					})
 				}
 			} else {
-				// Table view: sort by selected column
-				if m.sortColumn == m.selectedColumn {
-					// Toggle sort direction
-					m.sortAscending = !m.sortAscending
+				// Sort by selected column
+				if view.SortColumn == view.SelectedColumn {
+					view.SortAscending = !view.SortAscending
 				} else {
-					// New column, default to ascending
-					m.sortColumn = m.selectedColumn
-					m.sortAscending = true
+					view.SortColumn = view.SelectedColumn
+					view.SortAscending = true
 				}
 			}
+			return m, nil
+
+		case "esc", "backspace":
+			// Pop view (go back)
+			m.PopView()
 			return m, nil
 
 		case "+", "=":
@@ -138,15 +131,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Increase refresh interval (slower refresh)
 			if m.refreshInterval < MaxRefreshInterval {
 				m.refreshInterval += RefreshStep
-			}
-			return m, nil
-
-		case "v":
-			// Toggle between grouped and table view
-			if m.viewMode == ViewGrouped {
-				m.viewMode = ViewTable
-			} else {
-				m.viewMode = ViewGrouped
 			}
 			return m, nil
 
@@ -164,6 +148,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(
 			m.tickCmd(),
 			m.fetchData(),
+			m.fetchNetIO(),
 		)
 
 	case DataMsg:
@@ -176,16 +161,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Clear error on successful fetch
 		m.lastError = nil
 		m.snapshot = msg.Snapshot
-		// Ensure cursor is valid for grouped view
-		if m.snapshot != nil && m.cursor >= len(m.snapshot.Applications) {
-			m.cursor = max(0, len(m.snapshot.Applications)-1)
+		// Ensure cursor is valid for current view level
+		view := m.CurrentView()
+		if view != nil && m.snapshot != nil {
+			maxCursor := m.maxCursorForLevel(view.Level)
+			if maxCursor > 0 && view.Cursor >= maxCursor {
+				view.Cursor = maxCursor - 1
+			} else if maxCursor == 0 {
+				view.Cursor = 0
+			}
 		}
-		// Ensure tableCursor is valid for table view
-		flatConns := m.flattenConnections()
-		if len(flatConns) > 0 && m.tableCursor >= len(flatConns) {
-			m.tableCursor = len(flatConns) - 1
-		} else if len(flatConns) == 0 {
-			m.tableCursor = 0
+		return m, nil
+
+	case NetIOMsg:
+		if msg.Err != nil {
+			// Silently ignore network I/O errors - stats are optional
+			return m, nil
+		}
+		// Update the netIOCache with new stats
+		for pid, stats := range msg.Stats {
+			m.netIOCache[pid] = stats
 		}
 		return m, nil
 	}
@@ -209,21 +204,50 @@ func (m Model) fetchData() tea.Cmd {
 	}
 }
 
-// syncViewportToCursor ensures the cursor line is visible in the viewport.
-func (m *Model) syncViewportToCursor() {
-	if !m.ready {
-		return
-	}
+func (m Model) fetchNetIO() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 
-	lineNumber := m.cursorLinePosition()
-
-	// If cursor is above visible area, scroll up
-	if lineNumber < m.viewport.YOffset {
-		m.viewport.SetYOffset(lineNumber)
-	}
-
-	// If cursor is below visible area, scroll down
-	if lineNumber >= m.viewport.YOffset+m.viewport.Height {
-		m.viewport.SetYOffset(lineNumber - m.viewport.Height + 1)
+		netIOCollector := collector.NewNetIOCollector()
+		stats, err := netIOCollector.Collect(ctx)
+		return NetIOMsg{Stats: stats, Err: err}
 	}
 }
+
+// maxCursorForLevel returns the maximum cursor position for the given view level.
+func (m Model) maxCursorForLevel(level ViewLevel) int {
+	if m.snapshot == nil {
+		return 0
+	}
+	switch level {
+	case LevelProcessList:
+		return len(m.snapshot.Applications)
+	case LevelConnections:
+		view := m.CurrentView()
+		if view == nil {
+			return 0
+		}
+		for _, app := range m.snapshot.Applications {
+			if app.Name == view.ProcessName {
+				return len(app.Connections)
+			}
+		}
+		return 0
+	default:
+		return 0
+	}
+}
+
+// maxColumnForLevel returns the number of columns for the given view level.
+func (m Model) maxColumnForLevel(level ViewLevel) int {
+	switch level {
+	case LevelProcessList:
+		return 4 // Process, Conns, ESTAB, LISTEN (for now, TX/RX later)
+	case LevelConnections:
+		return 5 // Proto, Local, Remote, State, PID
+	default:
+		return 1
+	}
+}
+

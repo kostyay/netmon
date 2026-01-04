@@ -85,12 +85,21 @@ func (c *darwinCollector) Collect(ctx context.Context) (*model.NetworkSnapshot, 
 		app.Connections = append(app.Connections, mc)
 	}
 
-	// Convert map to slice and sort PIDs
+	// Convert map to slice, calculate state counts, and sort PIDs
 	apps := make([]model.Application, 0, len(appMap))
 	for _, app := range appMap {
 		sort.Slice(app.PIDs, func(i, j int) bool {
 			return app.PIDs[i] < app.PIDs[j]
 		})
+		// Calculate connection state counts
+		for _, conn := range app.Connections {
+			switch conn.State {
+			case model.StateEstablished:
+				app.EstablishedCount++
+			case model.StateListen:
+				app.ListenCount++
+			}
+		}
 		apps = append(apps, *app)
 	}
 

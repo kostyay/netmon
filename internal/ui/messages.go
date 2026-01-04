@@ -14,3 +14,9 @@ type DataMsg struct {
 	Snapshot *model.NetworkSnapshot
 	Err      error
 }
+
+// NetIOMsg contains network I/O statistics from background collection.
+type NetIOMsg struct {
+	Stats map[int32]*model.NetIOStats // Keyed by PID
+	Err   error
+}

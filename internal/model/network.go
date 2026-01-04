@@ -5,6 +5,13 @@ import (
 	"time"
 )
 
+// NetIOStats represents network I/O statistics for a process.
+type NetIOStats struct {
+	BytesSent uint64    // Total bytes sent
+	BytesRecv uint64    // Total bytes received
+	UpdatedAt time.Time // When these stats were last updated
+}
+
 // Protocol represents a network protocol.
 type Protocol string
 
@@ -36,9 +43,11 @@ type Connection struct {
 
 // Application represents a grouped set of connections by app name.
 type Application struct {
-	Name        string       // Process name (e.g., Chrome)
-	PIDs        []int32      // All PIDs running this app
-	Connections []Connection // All connections across all PIDs
+	Name             string       // Process name (e.g., Chrome)
+	PIDs             []int32      // All PIDs running this app
+	Connections      []Connection // All connections across all PIDs
+	EstablishedCount int          // Number of ESTABLISHED connections
+	ListenCount      int          // Number of LISTEN connections
 }
 
 // ConnectionCount returns the number of connections for this application.

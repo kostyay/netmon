@@ -18,13 +18,25 @@ const (
 	RefreshStep            = 500 * time.Millisecond
 )
 
-// ViewMode represents the display mode for network connections.
-type ViewMode int
+// ViewLevel represents which level of navigation the user is at.
+type ViewLevel int
 
 const (
-	ViewGrouped ViewMode = iota
-	ViewTable
+	LevelProcessList ViewLevel = iota // Level 0: list of processes
+	LevelConnections                  // Level 1: connections for a specific process
 )
+
+// String returns a human-readable name for the ViewLevel.
+func (v ViewLevel) String() string {
+	switch v {
+	case LevelProcessList:
+		return "Processes"
+	case LevelConnections:
+		return "Connections"
+	default:
+		return fmt.Sprintf("ViewLevel(%d)", v)
+	}
+}
 
 // SortColumn represents the column to sort by in table view.
 type SortColumn int
@@ -37,18 +49,6 @@ const (
 	SortRemote
 	SortState
 )
-
-// String returns a human-readable name for the ViewMode.
-func (v ViewMode) String() string {
-	switch v {
-	case ViewGrouped:
-		return "Grouped"
-	case ViewTable:
-		return "Table"
-	default:
-		return fmt.Sprintf("ViewMode(%d)", v)
-	}
-}
 
 // String returns a human-readable name for the SortColumn.
 func (s SortColumn) String() string {
@@ -70,16 +70,28 @@ func (s SortColumn) String() string {
 	}
 }
 
+// ViewState captures the navigation state at a given level.
+type ViewState struct {
+	Level          ViewLevel  // Which view level (process list, connections)
+	ProcessName    string     // Selected process name (empty at Level 0)
+	Cursor         int        // Current cursor position in the list
+	SortColumn     SortColumn // Current sort column
+	SortAscending  bool       // Sort direction
+	SelectedColumn SortColumn // Currently selected column for navigation
+}
+
 // Model is the Bubble Tea model for the network monitor.
 type Model struct {
 	// Data
-	snapshot  *model.NetworkSnapshot
-	collector collector.Collector
+	snapshot   *model.NetworkSnapshot
+	collector  collector.Collector
+	netIOCache map[int32]*model.NetIOStats // Network I/O stats keyed by PID
+
+	// Navigation stack (replaces viewMode, expandedApps, cursor, tableCursor)
+	stack []ViewState
 
 	// UI State
-	cursor       int             // Current selected app index
-	quitting     bool
-	expandedApps map[string]bool // Track expanded state by app name
+	quitting bool
 
 	// Error tracking
 	lastError     error
@@ -95,13 +107,6 @@ type Model struct {
 	// Viewport for scrollable content
 	viewport viewport.Model
 	ready    bool // true after viewport initialized on first WindowSizeMsg
-
-	// Table view state
-	viewMode       ViewMode
-	sortColumn     SortColumn
-	sortAscending  bool
-	tableCursor    int
-	selectedColumn SortColumn // Column currently selected for navigation
 }
 
 // NewModel creates a new Model with default settings.
@@ -109,13 +114,44 @@ func NewModel() Model {
 	return Model{
 		collector:       collector.New(),
 		refreshInterval: DefaultRefreshInterval,
-		expandedApps:    make(map[string]bool),
-		viewMode:        ViewGrouped,
-		sortColumn:      SortProcess,
-		sortAscending:   true,
-		tableCursor:     0,
-		selectedColumn:  SortProcess, // Initialize to sort column
+		netIOCache:      make(map[int32]*model.NetIOStats),
+		stack: []ViewState{{
+			Level:          LevelProcessList,
+			ProcessName:    "",
+			Cursor:         0,
+			SortColumn:     SortProcess,
+			SortAscending:  true,
+			SelectedColumn: SortProcess,
+		}},
 	}
+}
+
+// CurrentView returns the current view state (top of stack).
+func (m *Model) CurrentView() *ViewState {
+	if len(m.stack) == 0 {
+		return nil
+	}
+	return &m.stack[len(m.stack)-1]
+}
+
+// PushView pushes a new view state onto the stack.
+func (m *Model) PushView(state ViewState) {
+	m.stack = append(m.stack, state)
+}
+
+// PopView pops the current view state from the stack.
+// Returns false if already at the root level.
+func (m *Model) PopView() bool {
+	if len(m.stack) <= 1 {
+		return false
+	}
+	m.stack = m.stack[:len(m.stack)-1]
+	return true
+}
+
+// AtRootLevel returns true if at the root navigation level.
+func (m *Model) AtRootLevel() bool {
+	return len(m.stack) <= 1
 }
 
 var _ tea.Model = Model{}
