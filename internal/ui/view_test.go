@@ -431,52 +431,78 @@ func TestRenderConnection_UDP(t *testing.T) {
 
 func TestRenderTableHeader(t *testing.T) {
 	m := Model{
-		sortColumn:    SortProcess,
-		sortAscending: true,
-		width:         80,
+		sortColumn:     SortProcess,
+		selectedColumn: SortPID,
+		sortAscending:  true,
+		width:          80,
 	}
 
 	result := m.renderTableHeader()
 
-	// Should contain column headers
-	if !strings.Contains(result, "[1]Process") {
-		t.Error("Table header should contain [1]Process")
+	// Should contain column headers (without [1], [2] prefixes)
+	if !strings.Contains(result, "PID") {
+		t.Error("Table header should contain PID")
 	}
-	if !strings.Contains(result, "[2]Proto") {
-		t.Error("Table header should contain [2]Proto")
+	if !strings.Contains(result, "Process") {
+		t.Error("Table header should contain Process")
 	}
-	if !strings.Contains(result, "[3]Local") {
-		t.Error("Table header should contain [3]Local")
+	if !strings.Contains(result, "Proto") {
+		t.Error("Table header should contain Proto")
 	}
-	if !strings.Contains(result, "[4]Remote") {
-		t.Error("Table header should contain [4]Remote")
+	if !strings.Contains(result, "Local") {
+		t.Error("Table header should contain Local")
 	}
-	if !strings.Contains(result, "[5]State") {
-		t.Error("Table header should contain [5]State")
+	if !strings.Contains(result, "Remote") {
+		t.Error("Table header should contain Remote")
 	}
-
-	// Should contain ascending indicator for active column
-	if !strings.Contains(result, "▲") {
-		t.Error("Table header should contain ascending indicator")
+	if !strings.Contains(result, "State") {
+		t.Error("Table header should contain State")
 	}
 
-	// Should contain separator line
-	if !strings.Contains(result, "─") {
-		t.Error("Table header should contain separator line")
+	// Should contain ascending indicator (↑) for active sort column
+	if !strings.Contains(result, "↑") {
+		t.Error("Table header should contain ascending indicator ↑")
+	}
+
+	// Should NOT contain old-style prefixes
+	if strings.Contains(result, "[1]") {
+		t.Error("Table header should not contain [1] prefix")
 	}
 }
 
 func TestRenderTableHeader_DescendingSort(t *testing.T) {
 	m := Model{
-		sortColumn:    SortProtocol,
-		sortAscending: false,
-		width:         80,
+		sortColumn:     SortProtocol,
+		selectedColumn: SortProtocol,
+		sortAscending:  false,
+		width:          80,
 	}
 
 	result := m.renderTableHeader()
 
-	if !strings.Contains(result, "▼") {
-		t.Error("Table header should contain descending indicator")
+	// Should contain descending indicator (↓)
+	if !strings.Contains(result, "↓") {
+		t.Error("Table header should contain descending indicator ↓")
+	}
+}
+
+func TestRenderTableHeader_SelectedColumn(t *testing.T) {
+	m := Model{
+		sortColumn:     SortProcess,
+		selectedColumn: SortRemote, // Different column selected
+		sortAscending:  true,
+		width:          80,
+	}
+
+	result := m.renderTableHeader()
+
+	// Result should contain Remote column (selected) styled differently
+	// Both columns should be present
+	if !strings.Contains(result, "Process") {
+		t.Error("Table header should contain Process")
+	}
+	if !strings.Contains(result, "Remote") {
+		t.Error("Table header should contain Remote")
 	}
 }
 

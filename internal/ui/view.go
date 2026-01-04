@@ -10,7 +10,7 @@ import (
 
 // Layout constants for fixed header/footer with scrollable content.
 const (
-	headerHeight = 4 // title + status + potential error + blank line
+	headerHeight = 3 // title + status + blank line
 	footerHeight = 2 // margin + controls line
 )
 
@@ -28,33 +28,33 @@ func (m Model) View() string {
 
 	// Wait for viewport to be initialized
 	if !m.ready {
-		return LoadingStyle.Render("Initializing...")
+		return LoadingStyle().Render("Initializing...")
 	}
 
 	var b strings.Builder
 
 	// === HEADER (fixed at top) ===
-	header := HeaderStyle.Render("netmon - Network Monitor")
+	header := HeaderStyle().Render("netmon - Network Monitor")
 	b.WriteString(header)
 	b.WriteString("\n")
 
-	// Status bar (refresh rate)
-	status := StatusStyle.Render(fmt.Sprintf("Refresh: %.1fs  [+/- to adjust]", m.refreshInterval.Seconds()))
+	// Status bar (refresh rate only, sort info moved to table header)
+	status := StatusStyle().Render(fmt.Sprintf("Refresh: %.1fs", m.refreshInterval.Seconds()))
 	b.WriteString(status)
 	b.WriteString("\n")
 
 	// Error display
 	if m.lastError != nil {
-		b.WriteString(ErrorStyle.Render(fmt.Sprintf("Error: %s", m.lastError.Error())))
+		b.WriteString(ErrorStyle().Render(fmt.Sprintf("Error: %s", m.lastError.Error())))
+		b.WriteString("\n")
 	}
-	b.WriteString("\n")
 
 	// === CONTENT (scrollable via viewport) ===
 	var content string
 	if m.snapshot == nil {
-		content = LoadingStyle.Render("Loading...")
+		content = LoadingStyle().Render("Loading...")
 	} else if len(m.snapshot.Applications) == 0 {
-		content = EmptyStyle.Render("No network connections found")
+		content = EmptyStyle().Render("No network connections found")
 	} else {
 		if m.viewMode == ViewGrouped {
 			content = m.renderApplications()
@@ -69,16 +69,38 @@ func (m Model) View() string {
 	b.WriteString("\n")
 
 	// === FOOTER (fixed at bottom) ===
-	var footerText string
-	if m.viewMode == ViewGrouped {
-		footerText = "↑↓/jk Navigate  ←→/hl Collapse/Expand  v: Table  +/- Refresh  q Quit"
-	} else {
-		footerText = "↑↓/jk Navigate  1-5 Sort  v: Grouped  +/- Refresh  q Quit"
-	}
-	footer := FooterStyle.Render(footerText)
-	b.WriteString(footer)
+	b.WriteString(m.renderFooter())
 
 	return b.String()
+}
+
+// renderFooter renders the footer with styled keybindings.
+func (m Model) renderFooter() string {
+	var parts []string
+	keyStyle := FooterKeyStyle()
+	descStyle := FooterDescStyle()
+
+	if m.viewMode == ViewGrouped {
+		parts = []string{
+			keyStyle.Render("↑↓") + descStyle.Render(" Navigate"),
+			keyStyle.Render("←→") + descStyle.Render(" Collapse/Expand"),
+			keyStyle.Render("v") + descStyle.Render(" Table"),
+			keyStyle.Render("+/-") + descStyle.Render(" Refresh"),
+			keyStyle.Render("q") + descStyle.Render(" Quit"),
+		}
+	} else {
+		parts = []string{
+			keyStyle.Render("↑↓") + descStyle.Render(" Navigate"),
+			keyStyle.Render("←→") + descStyle.Render(" Select Column"),
+			keyStyle.Render("Enter") + descStyle.Render(" Sort"),
+			keyStyle.Render("v") + descStyle.Render(" Grouped"),
+			keyStyle.Render("+/-") + descStyle.Render(" Refresh"),
+			keyStyle.Render("q") + descStyle.Render(" Quit"),
+		}
+	}
+
+	footerText := strings.Join(parts, "  ")
+	return FooterStyle().Render(footerText)
 }
 
 func (m Model) renderApplications() string {
@@ -90,7 +112,7 @@ func (m Model) renderApplications() string {
 		totalConns += len(app.Connections)
 	}
 	if m.snapshot.SkippedCount > 0 {
-		summary := StatusStyle.Render(fmt.Sprintf("Showing %d connections (%d hidden)", totalConns, m.snapshot.SkippedCount))
+		summary := StatusStyle().Render(fmt.Sprintf("Showing %d connections (%d hidden)", totalConns, m.snapshot.SkippedCount))
 		b.WriteString(summary)
 		b.WriteString("\n\n")
 	}
@@ -144,9 +166,9 @@ func (m Model) renderAppHeader(app model.Application, isSelected bool) string {
 	line := fmt.Sprintf("%s%s%s", leftPart, strings.Repeat(" ", padding), pidsStr)
 
 	if isSelected {
-		return SelectedAppStyle.Render(line)
+		return SelectedAppStyle().Render(line)
 	}
-	return AppStyle.Render(line)
+	return AppStyle().Render(line)
 }
 
 func (m Model) renderConnection(conn model.Connection, isSelected bool) string {
@@ -159,9 +181,9 @@ func (m Model) renderConnection(conn model.Connection, isSelected bool) string {
 	)
 
 	if isSelected {
-		return SelectedConnStyle.Render(line)
+		return SelectedConnStyle().Render(line)
 	}
-	return ConnStyle.Render(line)
+	return ConnStyle().Render(line)
 }
 
 func formatPIDs(pids []int32) string {
@@ -207,8 +229,8 @@ func (m Model) cursorLinePosition() int {
 
 	// In table view, account for header lines
 	if m.viewMode == ViewTable {
-		// Account for summary line, blank line, header row, separator
-		const tableHeaderLines = 4
+		// Account for summary line, blank line, header row (no separator now)
+		const tableHeaderLines = 3
 		return m.tableCursor + tableHeaderLines
 	}
 
@@ -251,6 +273,8 @@ func (m Model) sortConnections(conns []FlatConnection) []FlatConnection {
 	sort.Slice(sorted, func(i, j int) bool {
 		var less bool
 		switch m.sortColumn {
+		case SortPID:
+			less = sorted[i].Connection.PID < sorted[j].Connection.PID
 		case SortProcess:
 			less = sorted[i].ProcessName < sorted[j].ProcessName
 		case SortProtocol:
@@ -262,7 +286,7 @@ func (m Model) sortConnections(conns []FlatConnection) []FlatConnection {
 		case SortState:
 			less = sorted[i].Connection.State < sorted[j].Connection.State
 		default:
-			less = sorted[i].ProcessName < sorted[j].ProcessName
+			less = sorted[i].Connection.PID < sorted[j].Connection.PID
 		}
 
 		if m.sortAscending {
@@ -277,7 +301,7 @@ func (m Model) sortConnections(conns []FlatConnection) []FlatConnection {
 // renderTable renders the full table view with headers and sorted connections.
 func (m Model) renderTable() string {
 	if m.snapshot == nil {
-		return LoadingStyle.Render("Loading...")
+		return LoadingStyle().Render("Loading...")
 	}
 
 	var b strings.Builder
@@ -286,20 +310,14 @@ func (m Model) renderTable() string {
 	conns := m.flattenConnections()
 	conns = m.sortConnections(conns)
 
-	// Render summary with sort indicator
+	// Render summary (without sort indicator - it's in header now)
 	totalConns := len(conns)
-	sortColumnName := m.sortColumnName()
-	sortIndicator := "▲"
-	if !m.sortAscending {
-		sortIndicator = "▼"
-	}
 	if m.snapshot.SkippedCount > 0 {
-		summary := StatusStyle.Render(fmt.Sprintf("Showing %d connections (%d hidden) | Sorted by %s %s",
-			totalConns, m.snapshot.SkippedCount, sortColumnName, sortIndicator))
+		summary := StatusStyle().Render(fmt.Sprintf("Showing %d connections (%d hidden)",
+			totalConns, m.snapshot.SkippedCount))
 		b.WriteString(summary)
 	} else {
-		summary := StatusStyle.Render(fmt.Sprintf("Showing %d connections | Sorted by %s %s",
-			totalConns, sortColumnName, sortIndicator))
+		summary := StatusStyle().Render(fmt.Sprintf("Showing %d connections", totalConns))
 		b.WriteString(summary)
 	}
 	b.WriteString("\n\n")
@@ -313,7 +331,8 @@ func (m Model) renderTable() string {
 		isSelected := i == m.tableCursor
 
 		// Build row content
-		row := fmt.Sprintf("%-14s %-5s %-21s %-21s %-11s",
+		row := fmt.Sprintf("%-6d  %-14s %-5s %-21s %-21s %-11s",
+			fc.Connection.PID,
 			truncateString(fc.ProcessName, 14),
 			fc.Connection.Protocol,
 			truncateAddr(fc.Connection.LocalAddr, 21),
@@ -324,10 +343,10 @@ func (m Model) renderTable() string {
 		// Add selection marker
 		if isSelected {
 			row = "▶ " + row
-			b.WriteString(SelectedConnStyle.Render(row))
+			b.WriteString(SelectedConnStyle().Render(row))
 		} else {
 			row = "  " + row
-			b.WriteString(ConnStyle.Render(row))
+			b.WriteString(ConnStyle().Render(row))
 		}
 		b.WriteString("\n")
 	}
@@ -352,6 +371,8 @@ func truncateString(s string, maxLen int) string {
 // sortColumnName returns the display name for the current sort column.
 func (m Model) sortColumnName() string {
 	switch m.sortColumn {
+	case SortPID:
+		return "PID"
 	case SortProcess:
 		return "Process"
 	case SortProtocol:
@@ -363,65 +384,77 @@ func (m Model) sortColumnName() string {
 	case SortState:
 		return "State"
 	default:
-		return "Process"
+		return "PID"
 	}
 }
 
 // renderTableHeader renders the column headers for table view with sort indicators.
+// Selected column is shown in bold, sort indicator in cyan.
 func (m Model) renderTableHeader() string {
 	var b strings.Builder
 
-	// Column headers with keyboard shortcuts
+	// Column definitions (without [1], [2] prefixes)
 	columns := []struct {
-		key    string
 		label  string
 		column SortColumn
+		width  int
 	}{
-		{"1", "Process", SortProcess},
-		{"2", "Proto", SortProtocol},
-		{"3", "Local", SortLocal},
-		{"4", "Remote", SortRemote},
-		{"5", "State", SortState},
+		{"PID", SortPID, 8},
+		{"Process", SortProcess, 16},
+		{"Proto", SortProtocol, 6},
+		{"Local", SortLocal, 22},
+		{"Remote", SortRemote, 22},
+		{"State", SortState, 11},
 	}
+
+	headerStyle := TableHeaderStyle()
+	selectedStyle := TableHeaderSelectedStyle()
+	sortStyle := SortIndicatorStyle()
 
 	for i, col := range columns {
 		if i > 0 {
-			b.WriteString("  ")
+			b.WriteString(" ")
 		}
-		header := fmt.Sprintf("[%s]%s", col.key, col.label)
 
-		// Add sort indicator if this is the active sort column
-		if m.sortColumn == col.column {
+		// Determine if this column is selected or being sorted
+		isSelected := m.selectedColumn == col.column
+		isSorted := m.sortColumn == col.column
+
+		// Build header text with proper width
+		header := col.label
+
+		// Add sort indicator if this is the sort column
+		var sortIndicator string
+		if isSorted {
 			if m.sortAscending {
-				header += "▲"
+				sortIndicator = "↑"
 			} else {
-				header += "▼"
+				sortIndicator = "↓"
 			}
 		}
 
-		// Apply width padding
-		switch col.column {
-		case SortProcess:
-			header = fmt.Sprintf("%-15s", header)
-		case SortProtocol:
-			header = fmt.Sprintf("%-8s", header)
-		case SortLocal, SortRemote:
-			header = fmt.Sprintf("%-21s", header)
-		case SortState:
-			header = fmt.Sprintf("%-12s", header)
+		// Pad to width (accounting for sort indicator)
+		padWidth := col.width - len(header)
+		if isSorted {
+			padWidth -= 1 // Space for sort indicator
+		}
+		if padWidth < 0 {
+			padWidth = 0
+		}
+		paddedHeader := header + strings.Repeat(" ", padWidth)
+
+		// Apply styles
+		if isSelected {
+			b.WriteString(selectedStyle.Render(paddedHeader))
+		} else {
+			b.WriteString(headerStyle.Render(paddedHeader))
 		}
 
-		b.WriteString(header)
+		// Add sort indicator with its own style
+		if isSorted {
+			b.WriteString(sortStyle.Render(sortIndicator))
+		}
 	}
 
-	headerLine := TableHeaderStyle.Render(b.String())
-
-	// Add separator line
-	availableWidth := m.width
-	if availableWidth == 0 {
-		availableWidth = 80
-	}
-	separator := TableSeparatorStyle.Render(strings.Repeat("─", availableWidth))
-
-	return headerLine + "\n" + separator
+	return b.String()
 }

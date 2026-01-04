@@ -469,64 +469,146 @@ func TestViewToggle(t *testing.T) {
 	}
 }
 
-func TestSortKeyHandlers(t *testing.T) {
+func TestColumnNavigation(t *testing.T) {
 	m := createTestModel()
 	m.viewMode = ViewTable
+	m.selectedColumn = SortPID // Start at first column
 
-	tests := []struct {
-		name         string
-		key          rune
-		wantColumn   SortColumn
-		startColumn  SortColumn
-		startAsc     bool
-		expectedAsc  bool
-	}{
-		{"switch to protocol", '2', SortProtocol, SortProcess, true, true},
-		{"switch to local", '3', SortLocal, SortProcess, true, true},
-		{"switch to remote", '4', SortRemote, SortProcess, true, true},
-		{"switch to state", '5', SortState, SortProcess, true, true},
-		{"switch to process", '1', SortProcess, SortState, true, true},
-		{"toggle process desc", '1', SortProcess, SortProcess, true, false},
-		{"toggle process asc", '1', SortProcess, SortProcess, false, true},
+	// Move right
+	msg := tea.KeyMsg{Type: tea.KeyRight}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.selectedColumn != SortProcess {
+		t.Errorf("selectedColumn = %v, want SortProcess after right", newModel.selectedColumn)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			m.sortColumn = tt.startColumn
-			m.sortAscending = tt.startAsc
+	// Move right again
+	updated, _ = newModel.Update(msg)
+	newModel = updated.(Model)
 
-			msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{tt.key}}
-			updated, _ := m.Update(msg)
-			newModel := updated.(Model)
+	if newModel.selectedColumn != SortProtocol {
+		t.Errorf("selectedColumn = %v, want SortProtocol after second right", newModel.selectedColumn)
+	}
 
-			if newModel.sortColumn != tt.wantColumn {
-				t.Errorf("sortColumn = %v, want %v", newModel.sortColumn, tt.wantColumn)
-			}
-			if newModel.sortAscending != tt.expectedAsc {
-				t.Errorf("sortAscending = %v, want %v", newModel.sortAscending, tt.expectedAsc)
-			}
-		})
+	// Move left
+	msg = tea.KeyMsg{Type: tea.KeyLeft}
+	updated, _ = newModel.Update(msg)
+	newModel = updated.(Model)
+
+	if newModel.selectedColumn != SortProcess {
+		t.Errorf("selectedColumn = %v, want SortProcess after left", newModel.selectedColumn)
 	}
 }
 
-func TestSortKeysIgnoredInGroupedView(t *testing.T) {
+func TestColumnNavigation_Bounds(t *testing.T) {
 	m := createTestModel()
-	m.viewMode = ViewGrouped
+	m.viewMode = ViewTable
+
+	// At first column, left should not go negative
+	m.selectedColumn = SortPID
+	msg := tea.KeyMsg{Type: tea.KeyLeft}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.selectedColumn != SortPID {
+		t.Errorf("selectedColumn = %v, should stay at SortPID at left bound", newModel.selectedColumn)
+	}
+
+	// At last column, right should not exceed
+	m.selectedColumn = SortState
+	msg = tea.KeyMsg{Type: tea.KeyRight}
+	updated, _ = m.Update(msg)
+	newModel = updated.(Model)
+
+	if newModel.selectedColumn != SortState {
+		t.Errorf("selectedColumn = %v, should stay at SortState at right bound", newModel.selectedColumn)
+	}
+}
+
+func TestColumnNavigation_WithHLKeys(t *testing.T) {
+	m := createTestModel()
+	m.viewMode = ViewTable
+	m.selectedColumn = SortProcess
+
+	// 'l' moves right
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.selectedColumn != SortProtocol {
+		t.Errorf("selectedColumn = %v, want SortProtocol after 'l'", newModel.selectedColumn)
+	}
+
+	// 'h' moves left
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}}
+	updated, _ = newModel.Update(msg)
+	newModel = updated.(Model)
+
+	if newModel.selectedColumn != SortProcess {
+		t.Errorf("selectedColumn = %v, want SortProcess after 'h'", newModel.selectedColumn)
+	}
+}
+
+func TestSortOnEnter(t *testing.T) {
+	m := createTestModel()
+	m.viewMode = ViewTable
+	m.selectedColumn = SortProtocol
 	m.sortColumn = SortProcess
 	m.sortAscending = true
 
-	keys := []rune{'1', '2', '3', '4', '5'}
-	for _, key := range keys {
-		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{key}}
-		updated, _ := m.Update(msg)
-		newModel := updated.(Model)
+	// Press Enter to sort by selected column
+	msg := tea.KeyMsg{Type: tea.KeyEnter}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
 
-		if newModel.sortColumn != SortProcess {
-			t.Errorf("key '%c' in grouped view: sortColumn changed to %v", key, newModel.sortColumn)
-		}
-		if newModel.sortAscending != true {
-			t.Errorf("key '%c' in grouped view: sortAscending changed", key)
-		}
+	if newModel.sortColumn != SortProtocol {
+		t.Errorf("sortColumn = %v, want SortProtocol after Enter", newModel.sortColumn)
+	}
+	if !newModel.sortAscending {
+		t.Error("sortAscending should be true for new column")
+	}
+}
+
+func TestSortOnSpace(t *testing.T) {
+	m := createTestModel()
+	m.viewMode = ViewTable
+	m.selectedColumn = SortLocal
+	m.sortColumn = SortProcess
+	m.sortAscending = true
+
+	// Press Space to sort by selected column
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.sortColumn != SortLocal {
+		t.Errorf("sortColumn = %v, want SortLocal after Space", newModel.sortColumn)
+	}
+}
+
+func TestSortToggleDirection(t *testing.T) {
+	m := createTestModel()
+	m.viewMode = ViewTable
+	m.selectedColumn = SortProcess
+	m.sortColumn = SortProcess // Same column
+	m.sortAscending = true
+
+	// Press Enter to toggle direction
+	msg := tea.KeyMsg{Type: tea.KeyEnter}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.sortAscending {
+		t.Error("sortAscending should be false after toggling")
+	}
+
+	// Toggle again
+	updated, _ = newModel.Update(msg)
+	newModel = updated.(Model)
+
+	if !newModel.sortAscending {
+		t.Error("sortAscending should be true after toggling back")
 	}
 }
 
@@ -563,24 +645,36 @@ func TestExpandCollapseIgnoredInTableView(t *testing.T) {
 	m := createTestModel()
 	m.viewMode = ViewTable
 	m.expandedApps["App1"] = true
+	m.selectedColumn = SortProcess
 
-	// Left should not collapse in table view
+	// Left in table view should move column selection, not collapse
 	msg := tea.KeyMsg{Type: tea.KeyLeft}
 	updated, _ := m.Update(msg)
 	newModel := updated.(Model)
 
+	// Expand state should be unchanged
 	if !newModel.expandedApps["App1"] {
-		t.Error("left key should not collapse in table view")
+		t.Error("left key should not affect expand state in table view")
+	}
+	// Column should have moved
+	if newModel.selectedColumn != SortPID {
+		t.Errorf("selectedColumn = %v, want SortPID after left in table view", newModel.selectedColumn)
 	}
 
-	// Right should not change state
+	// Right in table view should move column selection, not expand
 	m.expandedApps["App2"] = false
+	m.selectedColumn = SortProcess
 	msg = tea.KeyMsg{Type: tea.KeyRight}
 	updated, _ = m.Update(msg)
 	newModel = updated.(Model)
 
+	// Expand state should be unchanged
 	if newModel.expandedApps["App2"] {
-		t.Error("right key should not expand in table view")
+		t.Error("right key should not affect expand state in table view")
+	}
+	// Column should have moved
+	if newModel.selectedColumn != SortProtocol {
+		t.Errorf("selectedColumn = %v, want SortProtocol after right in table view", newModel.selectedColumn)
 	}
 }
 

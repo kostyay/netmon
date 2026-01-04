@@ -1,58 +1,110 @@
 package ui
 
-import "github.com/charmbracelet/lipgloss"
-
-var (
-	// Header and Footer
-	HeaderStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#7D56F4")).
-			MarginBottom(1)
-
-	FooterStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#626262")).
-			MarginTop(1)
-
-	// Status bar
-	StatusStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#888888"))
-
-	// Loading and empty states
-	LoadingStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#888888")).
-			Italic(true)
-
-	EmptyStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#888888")).
-			Italic(true)
-
-	// Application rows
-	AppStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFFFF"))
-
-	SelectedAppStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#FFFFFF")).
-				Background(lipgloss.Color("#7D56F4")).
-				Bold(true)
-
-	// Connection rows
-	ConnStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#AAAAAA"))
-
-	SelectedConnStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#DDDDDD")).
-				Background(lipgloss.Color("#4A3B7C"))
-
-	// Error display
-	ErrorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF5555")).
-			Bold(true)
-
-	// Table view styles
-	TableHeaderStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#7D56F4")).
-				Bold(true)
-
-	TableSeparatorStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#4A3B7C"))
+import (
+	"github.com/charmbracelet/lipgloss"
+	"github.com/kostyay/netmon/internal/config"
 )
+
+// Theme-aware style getters
+
+// HeaderStyle returns the style for the main header title.
+func HeaderStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Header.TitleFg)).
+		MarginBottom(1)
+}
+
+// FooterStyle returns the style for footer text.
+func FooterStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Footer.FgColor)).
+		MarginTop(1)
+}
+
+// FooterKeyStyle returns the style for keyboard shortcut keys in footer.
+func FooterKeyStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Footer.KeyFgColor))
+}
+
+// FooterDescStyle returns the style for key descriptions in footer.
+func FooterDescStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Footer.DescFgColor))
+}
+
+// StatusStyle returns the style for status bar text.
+func StatusStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Status.FgColor))
+}
+
+// LoadingStyle returns the style for loading indicators.
+func LoadingStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Status.FgColor)).
+		Italic(true)
+}
+
+// EmptyStyle returns the style for empty state messages.
+func EmptyStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Status.FgColor)).
+		Italic(true)
+}
+
+// AppStyle returns the style for application rows in grouped view.
+func AppStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Table.FgColor))
+}
+
+// SelectedAppStyle returns the style for selected application in grouped view.
+func SelectedAppStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Table.CursorFgColor)).
+		Background(lipgloss.Color(config.CurrentTheme.Styles.Table.CursorBgColor)).
+		Bold(true)
+}
+
+// ConnStyle returns the style for connection rows.
+func ConnStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Table.FgColor))
+}
+
+// SelectedConnStyle returns the style for the selected row in table view.
+func SelectedConnStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Table.CursorFgColor)).
+		Background(lipgloss.Color(config.CurrentTheme.Styles.Table.CursorBgColor))
+}
+
+// ErrorStyle returns the style for error messages.
+func ErrorStyle() lipgloss.Style {
+	// Keep error as red for visibility
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FF5555")).
+		Bold(true)
+}
+
+// TableHeaderStyle returns the style for table column headers.
+func TableHeaderStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Table.HeaderFgColor)).
+		Bold(true)
+}
+
+// TableHeaderSelectedStyle returns the style for the selected column header.
+func TableHeaderSelectedStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Table.SelectedColumn)).
+		Bold(true)
+}
+
+// SortIndicatorStyle returns the style for sort direction indicators.
+func SortIndicatorStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Table.SortIndicator))
+}

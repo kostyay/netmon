@@ -27,6 +27,7 @@ const (
 
 // Connection represents a single network connection.
 type Connection struct {
+	PID        int32           // Process ID owning this connection
 	Protocol   Protocol        // TCP or UDP
 	LocalAddr  string          // e.g., 127.0.0.1:52341
 	RemoteAddr string          // e.g., 142.250.80.46:443 or * for listening
