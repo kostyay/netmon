@@ -2,11 +2,14 @@ package ui
 
 import (
 	"context"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/kostyay/netmon/internal/collector"
+	"github.com/kostyay/netmon/internal/model"
 )
 
 // Init initializes the model.
@@ -47,6 +50,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Search mode intercepts all keys
+		if m.searchMode {
+			switch msg.String() {
+			case "enter":
+				m.activeFilter = m.searchQuery
+				m.searchMode = false
+				m.clampCursor()
+				return m, nil
+			case "esc":
+				m.searchQuery = m.activeFilter // revert to confirmed
+				m.searchMode = false
+				return m, nil
+			case "backspace":
+				if len(m.searchQuery) > 0 {
+					m.searchQuery = m.searchQuery[:len(m.searchQuery)-1]
+				}
+				return m, nil
+			default:
+				// Append printable characters
+				r := msg.Runes
+				if len(r) == 1 && r[0] >= 32 {
+					m.searchQuery += string(r)
+				}
+				return m, nil
+			}
+		}
+
 		switch msg.String() {
 		case "q", "ctrl+c":
 			m.quitting = true
@@ -188,6 +218,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					SelectedColumn: SortProcess,
 				}}
 			}
+			return m, nil
+
+		case "/":
+			// Enter search mode
+			m.searchMode = true
+			m.searchQuery = m.activeFilter // pre-fill with current filter
 			return m, nil
 
 		default:
@@ -340,5 +376,81 @@ func (m Model) findColumnIndex(columns []SortColumn, col SortColumn) int {
 		}
 	}
 	return 0
+}
+
+// clampCursor ensures cursor is within bounds after filter changes.
+func (m *Model) clampCursor() {
+	view := m.CurrentView()
+	if view == nil {
+		return
+	}
+	max := m.filteredCount()
+	if max == 0 {
+		view.Cursor = 0
+	} else if view.Cursor >= max {
+		view.Cursor = max - 1
+	}
+}
+
+// filteredCount returns the number of items after filtering for current view.
+func (m *Model) filteredCount() int {
+	if m.snapshot == nil {
+		return 0
+	}
+	filter := m.activeFilter
+	if m.searchMode {
+		filter = m.searchQuery
+	}
+	if filter == "" {
+		return m.maxCursorForLevel(m.CurrentView().Level)
+	}
+
+	view := m.CurrentView()
+	switch view.Level {
+	case LevelProcessList:
+		count := 0
+		for _, app := range m.snapshot.Applications {
+			ports := extractPorts(app.Connections)
+			if matchesFilter(filter, app.Name, app.PIDs, ports) {
+				count++
+			}
+		}
+		return count
+	case LevelAllConnections:
+		count := 0
+		for _, app := range m.snapshot.Applications {
+			for _, conn := range app.Connections {
+				ports := extractPortsFromAddrs(conn.LocalAddr, conn.RemoteAddr)
+				if matchesFilter(filter, app.Name, app.PIDs, ports) {
+					count++
+				}
+			}
+		}
+		return count
+	default:
+		return m.maxCursorForLevel(view.Level)
+	}
+}
+
+// extractPorts gets all ports from connections for filter matching.
+func extractPorts(conns []model.Connection) []int {
+	var ports []int
+	for _, c := range conns {
+		ports = append(ports, extractPortsFromAddrs(c.LocalAddr, c.RemoteAddr)...)
+	}
+	return ports
+}
+
+// extractPortsFromAddrs parses port numbers from address strings like "127.0.0.1:8080".
+func extractPortsFromAddrs(addrs ...string) []int {
+	var ports []int
+	for _, addr := range addrs {
+		if idx := strings.LastIndex(addr, ":"); idx != -1 {
+			if port, err := strconv.Atoi(addr[idx+1:]); err == nil {
+				ports = append(ports, port)
+			}
+		}
+	}
+	return ports
 }
 

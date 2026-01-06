@@ -2,6 +2,8 @@ package ui
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
@@ -127,6 +129,11 @@ type Model struct {
 	// Viewport for scrollable content
 	viewport viewport.Model
 	ready    bool // true after viewport initialized on first WindowSizeMsg
+
+	// Search/filter state
+	searchMode   bool   // true when search input is active
+	searchQuery  string // current search text (live updates while typing)
+	activeFilter string // confirmed filter (applied after Enter)
 }
 
 // NewModel creates a new Model with default settings.
@@ -175,3 +182,32 @@ func (m *Model) AtRootLevel() bool {
 }
 
 var _ tea.Model = Model{}
+
+// matchesFilter checks if any field contains the search string (case-insensitive).
+func matchesFilter(filter, processName string, pids []int32, ports []int) bool {
+	if filter == "" {
+		return true
+	}
+	filter = strings.ToLower(filter)
+
+	// Match process name
+	if strings.Contains(strings.ToLower(processName), filter) {
+		return true
+	}
+
+	// Match any PID as string
+	for _, pid := range pids {
+		if strings.Contains(strconv.Itoa(int(pid)), filter) {
+			return true
+		}
+	}
+
+	// Match any port
+	for _, port := range ports {
+		if strings.Contains(strconv.Itoa(port), filter) {
+			return true
+		}
+	}
+
+	return false
+}

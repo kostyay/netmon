@@ -223,8 +223,17 @@ func (m Model) renderBreadcrumbsText() string {
 func (m Model) renderFooter() string {
 	var b strings.Builder
 
-	// Row 1: Breadcrumbs (full width)
-	b.WriteString(StatusStyle().Width(m.width).Render(m.renderBreadcrumbsText()))
+	// Row 1: Search input or breadcrumbs
+	if m.searchMode {
+		// Show search input with cursor
+		b.WriteString(StatusStyle().Width(m.width).Render(fmt.Sprintf("/%s█", m.searchQuery)))
+	} else if m.activeFilter != "" {
+		// Show filter indicator + breadcrumbs
+		filterText := fmt.Sprintf("[filter: %s]  %s", m.activeFilter, m.renderBreadcrumbsText())
+		b.WriteString(StatusStyle().Width(m.width).Render(filterText))
+	} else {
+		b.WriteString(StatusStyle().Width(m.width).Render(m.renderBreadcrumbsText()))
+	}
 	b.WriteString("\n")
 
 	// Row 2: Keybindings (full width)
@@ -256,36 +265,103 @@ func (m Model) renderKeybindingsText() string {
 		return strings.Join(parts, "  ")
 	}
 
+	// Search mode keybindings
+	if m.searchMode {
+		parts = []string{
+			descStyle.Render("[SEARCH]"),
+			keyStyle.Render("Enter") + descStyle.Render(" Apply"),
+			keyStyle.Render("Esc") + descStyle.Render(" Cancel"),
+		}
+		return strings.Join(parts, "  ")
+	}
+
 	switch view.Level {
 	case LevelProcessList:
 		parts = []string{
 			keyStyle.Render("↑↓") + descStyle.Render(" Navigate"),
 			keyStyle.Render("Enter") + descStyle.Render(" Drill-in"),
+			keyStyle.Render("/") + descStyle.Render(" Search"),
 			keyStyle.Render("s") + descStyle.Render(" Sort"),
 			keyStyle.Render("v") + descStyle.Render(" All"),
-			keyStyle.Render("+/-") + descStyle.Render(" Refresh"),
 			keyStyle.Render("q") + descStyle.Render(" Quit"),
 		}
 	case LevelConnections:
 		parts = []string{
 			keyStyle.Render("↑↓") + descStyle.Render(" Navigate"),
+			keyStyle.Render("/") + descStyle.Render(" Search"),
 			keyStyle.Render("s") + descStyle.Render(" Sort"),
 			keyStyle.Render("Esc") + descStyle.Render(" Back"),
 			keyStyle.Render("v") + descStyle.Render(" All"),
-			keyStyle.Render("+/-") + descStyle.Render(" Refresh"),
 			keyStyle.Render("q") + descStyle.Render(" Quit"),
 		}
 	case LevelAllConnections:
 		parts = []string{
 			keyStyle.Render("↑↓") + descStyle.Render(" Navigate"),
+			keyStyle.Render("/") + descStyle.Render(" Search"),
 			keyStyle.Render("s") + descStyle.Render(" Sort"),
 			keyStyle.Render("v") + descStyle.Render(" Grouped"),
-			keyStyle.Render("+/-") + descStyle.Render(" Refresh"),
 			keyStyle.Render("q") + descStyle.Render(" Quit"),
 		}
 	}
 
 	return strings.Join(parts, "  ")
+}
+
+// currentFilter returns the active filter string, preferring searchQuery when in search mode.
+func (m Model) currentFilter() string {
+	if m.searchMode {
+		return m.searchQuery
+	}
+	return m.activeFilter
+}
+
+// filteredApps returns applications matching the current filter.
+func (m Model) filteredApps() []model.Application {
+	if m.snapshot == nil {
+		return nil
+	}
+	filter := m.currentFilter()
+	if filter == "" {
+		return m.snapshot.Applications
+	}
+
+	var result []model.Application
+	for _, app := range m.snapshot.Applications {
+		ports := extractPorts(app.Connections)
+		if matchesFilter(filter, app.Name, app.PIDs, ports) {
+			result = append(result, app)
+		}
+	}
+	return result
+}
+
+// filteredAllConnections returns connections matching the current filter.
+func (m Model) filteredAllConnections() []connectionWithProcess {
+	if m.snapshot == nil {
+		return nil
+	}
+	filter := m.currentFilter()
+
+	var result []connectionWithProcess
+	for _, app := range m.snapshot.Applications {
+		for _, conn := range app.Connections {
+			if filter == "" {
+				result = append(result, connectionWithProcess{
+					Connection:  conn,
+					ProcessName: app.Name,
+				})
+				continue
+			}
+			ports := extractPortsFromAddrs(conn.LocalAddr, conn.RemoteAddr)
+			if matchesFilter(filter, app.Name, app.PIDs, ports) {
+				result = append(result, connectionWithProcess{
+					Connection:  conn,
+					ProcessName: app.Name,
+				})
+			}
+		}
+	}
+	return result
 }
 
 // processListColumns returns the column definitions for the process list.
@@ -312,6 +388,18 @@ func (m Model) renderProcessList() string {
 		return ""
 	}
 
+	// Get filtered applications
+	apps := m.filteredApps()
+
+	// Handle empty results
+	if len(apps) == 0 {
+		filter := m.currentFilter()
+		if filter != "" {
+			return EmptyStyle().Render(fmt.Sprintf("No matches for '%s'", filter))
+		}
+		return EmptyStyle().Render("No processes found")
+	}
+
 	var b strings.Builder
 
 	// Calculate column widths
@@ -323,7 +411,7 @@ func (m Model) renderProcessList() string {
 	b.WriteString("\n")
 
 	// Sort applications
-	apps := m.sortProcessList(m.snapshot.Applications)
+	apps = m.sortProcessList(apps)
 
 	// Render each process row
 	for i, app := range apps {
@@ -501,6 +589,18 @@ func (m Model) renderAllConnections() string {
 		return ""
 	}
 
+	// Get filtered connections
+	allConns := m.filteredAllConnections()
+
+	// Handle empty results
+	if len(allConns) == 0 {
+		filter := m.currentFilter()
+		if filter != "" {
+			return EmptyStyle().Render(fmt.Sprintf("No matches for '%s'", filter))
+		}
+		return EmptyStyle().Render("No connections found")
+	}
+
 	var b strings.Builder
 
 	// === CONNECTIONS TABLE ===
@@ -511,17 +611,6 @@ func (m Model) renderAllConnections() string {
 	// Header
 	b.WriteString(m.renderAllConnectionsHeader(widths))
 	b.WriteString("\n")
-
-	// Collect all connections with process names
-	var allConns []connectionWithProcess
-	for _, app := range m.snapshot.Applications {
-		for _, conn := range app.Connections {
-			allConns = append(allConns, connectionWithProcess{
-				Connection:  conn,
-				ProcessName: app.Name,
-			})
-		}
-	}
 
 	// Sort connections
 	allConns = m.sortAllConnections(allConns)
