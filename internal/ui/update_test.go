@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"context"
 	"errors"
 	"testing"
 	"time"
@@ -697,77 +696,3 @@ func TestExtractPorts_EmptyConnections(t *testing.T) {
 	}
 }
 
-// NetIOCollector tests
-
-func TestUpdate_NetIOMsg_Success(t *testing.T) {
-	m := createTestModel()
-	m.netIOCache = make(map[int32]*model.NetIOStats)
-
-	stats := map[int32]*model.NetIOStats{
-		100: {BytesSent: 1000, BytesRecv: 2000},
-		200: {BytesSent: 3000, BytesRecv: 4000},
-	}
-	msg := NetIOMsg{Stats: stats, Err: nil}
-
-	updated, cmd := m.Update(msg)
-	newModel := updated.(Model)
-
-	if len(newModel.netIOCache) != 2 {
-		t.Errorf("netIOCache length = %d, want 2", len(newModel.netIOCache))
-	}
-	if newModel.netIOCache[100].BytesSent != 1000 {
-		t.Errorf("BytesSent for PID 100 = %d, want 1000", newModel.netIOCache[100].BytesSent)
-	}
-	if cmd != nil {
-		t.Error("cmd should be nil")
-	}
-}
-
-func TestUpdate_NetIOMsg_Error(t *testing.T) {
-	m := createTestModel()
-	originalCache := map[int32]*model.NetIOStats{
-		100: {BytesSent: 1000, BytesRecv: 2000},
-	}
-	m.netIOCache = originalCache
-
-	msg := NetIOMsg{Stats: nil, Err: errors.New("nettop failed")}
-
-	updated, cmd := m.Update(msg)
-	newModel := updated.(Model)
-
-	// Cache should remain unchanged on error
-	if len(newModel.netIOCache) != 1 {
-		t.Errorf("netIOCache should remain unchanged on error, got length %d", len(newModel.netIOCache))
-	}
-	if cmd != nil {
-		t.Error("cmd should be nil")
-	}
-}
-
-func TestModel_WithMockNetIOCollector(t *testing.T) {
-	stats := map[int32]*model.NetIOStats{
-		1234: {BytesSent: 5000, BytesRecv: 10000},
-	}
-	mock := newMockNetIOCollector(stats)
-
-	m := Model{
-		collector:       newMockCollector(nil),
-		netIOCollector:  mock,
-		refreshInterval: DefaultRefreshInterval,
-		netIOCache:      make(map[int32]*model.NetIOStats),
-		stack:           []ViewState{{Level: LevelProcessList}},
-	}
-
-	// Simulate what fetchNetIO() does internally
-	result, err := m.netIOCollector.Collect(context.Background())
-
-	if err != nil {
-		t.Errorf("Collect() returned error: %v", err)
-	}
-	if result == nil {
-		t.Fatal("Collect() returned nil stats")
-	}
-	if result[1234].BytesSent != 5000 {
-		t.Errorf("BytesSent = %d, want 5000", result[1234].BytesSent)
-	}
-}

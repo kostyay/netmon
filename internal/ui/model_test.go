@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -403,7 +404,7 @@ func TestBreadcrumbs_AtRoot(t *testing.T) {
 
 	crumbs := m.renderBreadcrumbsText()
 
-	if !contains(crumbs, "Processes") {
+	if !strings.Contains(crumbs, "Processes") {
 		t.Errorf("breadcrumbs at root should contain 'Processes', got: %s", crumbs)
 	}
 }
@@ -419,10 +420,10 @@ func TestBreadcrumbs_AtConnections(t *testing.T) {
 
 	crumbs := m.renderBreadcrumbsText()
 
-	if !contains(crumbs, "Processes") {
+	if !strings.Contains(crumbs, "Processes") {
 		t.Errorf("breadcrumbs should contain 'Processes', got: %s", crumbs)
 	}
-	if !contains(crumbs, "Chrome") {
+	if !strings.Contains(crumbs, "Chrome") {
 		t.Errorf("breadcrumbs should contain 'Chrome', got: %s", crumbs)
 	}
 }
@@ -451,18 +452,6 @@ func TestViewState_Defaults(t *testing.T) {
 	}
 }
 
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsString(s, substr))
-}
-
-func containsString(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
 
 // Tests for matchesFilter function
 
