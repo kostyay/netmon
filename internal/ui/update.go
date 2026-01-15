@@ -8,7 +8,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/kostyay/netmon/internal/collector"
 	"github.com/kostyay/netmon/internal/model"
 )
 
@@ -301,8 +300,7 @@ func (m Model) fetchNetIO() tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		netIOCollector := collector.NewNetIOCollector()
-		stats, err := netIOCollector.Collect(ctx)
+		stats, err := m.netIOCollector.Collect(ctx)
 		return NetIOMsg{Stats: stats, Err: err}
 	}
 }

@@ -105,9 +105,10 @@ type ViewState struct {
 // Model is the Bubble Tea model for the network monitor.
 type Model struct {
 	// Data
-	snapshot   *model.NetworkSnapshot
-	collector  collector.Collector
-	netIOCache map[int32]*model.NetIOStats // Network I/O stats keyed by PID
+	snapshot       *model.NetworkSnapshot
+	collector      collector.Collector
+	netIOCollector collector.NetIOCollector
+	netIOCache     map[int32]*model.NetIOStats // Network I/O stats keyed by PID
 
 	// Navigation stack (replaces viewMode, expandedApps, cursor, tableCursor)
 	stack []ViewState
@@ -140,6 +141,7 @@ type Model struct {
 func NewModel() Model {
 	return Model{
 		collector:       collector.New(),
+		netIOCollector:  collector.NewNetIOCollector(),
 		refreshInterval: DefaultRefreshInterval,
 		netIOCache:      make(map[int32]*model.NetIOStats),
 		stack: []ViewState{{

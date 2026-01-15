@@ -13,6 +13,13 @@ type Collector interface {
 	Collect(ctx context.Context) (*model.NetworkSnapshot, error)
 }
 
+// NetIOCollector is the interface for collecting network I/O statistics.
+// Implementations are platform-specific.
+type NetIOCollector interface {
+	// Collect gathers network I/O stats (bytes sent/received) per process.
+	Collect(ctx context.Context) (map[int32]*model.NetIOStats, error)
+}
+
 // New returns the appropriate Collector for the current platform.
 func New() Collector {
 	return newPlatformCollector()

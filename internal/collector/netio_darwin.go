@@ -14,17 +14,17 @@ import (
 	"github.com/kostyay/netmon/internal/model"
 )
 
-// NetIOCollector collects network I/O statistics using nettop.
-type NetIOCollector struct{}
+// netIOCollector collects network I/O statistics using nettop.
+type netIOCollector struct{}
 
 // NewNetIOCollector creates a new network I/O collector.
-func NewNetIOCollector() *NetIOCollector {
-	return &NetIOCollector{}
+func NewNetIOCollector() NetIOCollector {
+	return &netIOCollector{}
 }
 
 // Collect gathers network I/O stats for all processes using nettop.
 // nettop uses the private NetworkStatistics.framework internally.
-func (c *NetIOCollector) Collect(ctx context.Context) (map[int32]*model.NetIOStats, error) {
+func (c *netIOCollector) Collect(ctx context.Context) (map[int32]*model.NetIOStats, error) {
 	// Run nettop with one sample (-l 1), extended output (-x), specific columns (-J)
 	// Output format: "process.pid                    bytes_in     bytes_out"
 	cmd := exec.CommandContext(ctx, "nettop", "-P", "-l", "1", "-x", "-J", "bytes_in,bytes_out")

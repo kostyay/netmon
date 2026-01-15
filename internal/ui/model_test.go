@@ -17,6 +17,14 @@ func TestNewModel_DefaultCollector(t *testing.T) {
 	}
 }
 
+func TestNewModel_DefaultNetIOCollector(t *testing.T) {
+	m := NewModel()
+
+	if m.netIOCollector == nil {
+		t.Error("NewModel() should set a netIOCollector")
+	}
+}
+
 func TestNewModel_DefaultRefreshInterval(t *testing.T) {
 	m := NewModel()
 
