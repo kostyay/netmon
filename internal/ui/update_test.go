@@ -606,3 +606,91 @@ func TestNetIOMsg_Error(t *testing.T) {
 		t.Error("cmd should be nil")
 	}
 }
+
+// Tests for extractPorts functions
+
+func TestExtractPortsFromAddrs_SingleAddr(t *testing.T) {
+	ports := extractPortsFromAddrs("127.0.0.1:8080")
+	if len(ports) != 1 {
+		t.Fatalf("expected 1 port, got %d", len(ports))
+	}
+	if ports[0] != 8080 {
+		t.Errorf("expected port 8080, got %d", ports[0])
+	}
+}
+
+func TestExtractPortsFromAddrs_MultipleAddrs(t *testing.T) {
+	ports := extractPortsFromAddrs("127.0.0.1:8080", "10.0.0.1:443")
+	if len(ports) != 2 {
+		t.Fatalf("expected 2 ports, got %d", len(ports))
+	}
+	if ports[0] != 8080 || ports[1] != 443 {
+		t.Errorf("expected ports [8080, 443], got %v", ports)
+	}
+}
+
+func TestExtractPortsFromAddrs_IPv6(t *testing.T) {
+	ports := extractPortsFromAddrs("[::1]:9090")
+	if len(ports) != 1 {
+		t.Fatalf("expected 1 port, got %d", len(ports))
+	}
+	if ports[0] != 9090 {
+		t.Errorf("expected port 9090, got %d", ports[0])
+	}
+}
+
+func TestExtractPortsFromAddrs_Wildcard(t *testing.T) {
+	ports := extractPortsFromAddrs("*:80")
+	if len(ports) != 1 {
+		t.Fatalf("expected 1 port, got %d", len(ports))
+	}
+	if ports[0] != 80 {
+		t.Errorf("expected port 80, got %d", ports[0])
+	}
+}
+
+func TestExtractPortsFromAddrs_NoPort(t *testing.T) {
+	ports := extractPortsFromAddrs("*")
+	if len(ports) != 0 {
+		t.Errorf("expected 0 ports for '*', got %d", len(ports))
+	}
+}
+
+func TestExtractPortsFromAddrs_Empty(t *testing.T) {
+	ports := extractPortsFromAddrs()
+	if len(ports) != 0 {
+		t.Errorf("expected 0 ports for empty input, got %d", len(ports))
+	}
+}
+
+func TestExtractPorts_FromConnections(t *testing.T) {
+	conns := []model.Connection{
+		{LocalAddr: "127.0.0.1:8080", RemoteAddr: "10.0.0.1:443"},
+		{LocalAddr: "0.0.0.0:22", RemoteAddr: "*"},
+	}
+
+	ports := extractPorts(conns)
+	if len(ports) != 3 {
+		t.Fatalf("expected 3 ports, got %d", len(ports))
+	}
+
+	// Should contain 8080, 443, 22 (wildcard * has no port)
+	expected := map[int]bool{8080: true, 443: true, 22: true}
+	for _, p := range ports {
+		if !expected[p] {
+			t.Errorf("unexpected port %d", p)
+		}
+	}
+}
+
+func TestExtractPorts_EmptyConnections(t *testing.T) {
+	ports := extractPorts(nil)
+	if len(ports) != 0 {
+		t.Errorf("expected 0 ports for nil connections, got %d", len(ports))
+	}
+
+	ports = extractPorts([]model.Connection{})
+	if len(ports) != 0 {
+		t.Errorf("expected 0 ports for empty connections, got %d", len(ports))
+	}
+}

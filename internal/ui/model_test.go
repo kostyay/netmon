@@ -455,3 +455,92 @@ func containsString(s, substr string) bool {
 	}
 	return false
 }
+
+// Tests for matchesFilter function
+
+func TestMatchesFilter_EmptyFilter(t *testing.T) {
+	if !matchesFilter("", "Chrome", []int32{1234}, []int{8080}) {
+		t.Error("Empty filter should match everything")
+	}
+}
+
+func TestMatchesFilter_ProcessName(t *testing.T) {
+	tests := []struct {
+		filter      string
+		processName string
+		want        bool
+	}{
+		{"chrome", "Chrome", true},
+		{"CHROME", "Chrome", true},
+		{"Chr", "Chrome", true},
+		{"firefox", "Chrome", false},
+		{"ch", "Chrome", true},
+	}
+
+	for _, tt := range tests {
+		got := matchesFilter(tt.filter, tt.processName, nil, nil)
+		if got != tt.want {
+			t.Errorf("matchesFilter(%q, %q, nil, nil) = %v, want %v",
+				tt.filter, tt.processName, got, tt.want)
+		}
+	}
+}
+
+func TestMatchesFilter_PID(t *testing.T) {
+	tests := []struct {
+		filter string
+		pids   []int32
+		want   bool
+	}{
+		{"1234", []int32{1234}, true},
+		{"123", []int32{1234}, true},      // partial match
+		{"12", []int32{1234, 5678}, true}, // matches first
+		{"56", []int32{1234, 5678}, true}, // matches second
+		{"9999", []int32{1234}, false},
+	}
+
+	for _, tt := range tests {
+		got := matchesFilter(tt.filter, "NoMatch", tt.pids, nil)
+		if got != tt.want {
+			t.Errorf("matchesFilter(%q, 'NoMatch', %v, nil) = %v, want %v",
+				tt.filter, tt.pids, got, tt.want)
+		}
+	}
+}
+
+func TestMatchesFilter_Port(t *testing.T) {
+	tests := []struct {
+		filter string
+		ports  []int
+		want   bool
+	}{
+		{"8080", []int{8080}, true},
+		{"80", []int{8080}, true},    // partial match
+		{"443", []int{80, 443}, true}, // matches second
+		{"9999", []int{8080}, false},
+	}
+
+	for _, tt := range tests {
+		got := matchesFilter(tt.filter, "NoMatch", nil, tt.ports)
+		if got != tt.want {
+			t.Errorf("matchesFilter(%q, 'NoMatch', nil, %v) = %v, want %v",
+				tt.filter, tt.ports, got, tt.want)
+		}
+	}
+}
+
+func TestMatchesFilter_Combined(t *testing.T) {
+	// Should match if ANY of the criteria match
+	if !matchesFilter("chrome", "Chrome", []int32{1234}, []int{8080}) {
+		t.Error("Should match on process name")
+	}
+	if !matchesFilter("1234", "Firefox", []int32{1234}, []int{8080}) {
+		t.Error("Should match on PID")
+	}
+	if !matchesFilter("8080", "Firefox", []int32{5678}, []int{8080}) {
+		t.Error("Should match on port")
+	}
+	if matchesFilter("nomatch", "Firefox", []int32{5678}, []int{8080}) {
+		t.Error("Should not match when nothing matches")
+	}
+}
