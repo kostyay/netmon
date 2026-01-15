@@ -17,3 +17,21 @@ type Collector interface {
 func New() Collector {
 	return newPlatformCollector()
 }
+
+// CollectOnce performs a single snapshot collection including NetIO stats.
+// This is a convenience function for one-shot data collection without goroutines.
+func CollectOnce(ctx context.Context) (*model.NetworkSnapshot, map[int32]*model.NetIOStats, error) {
+	c := New()
+	snapshot, err := c.Collect(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	netio := NewNetIOCollector()
+	ioStats, err := netio.Collect(ctx)
+	if err != nil {
+		return snapshot, nil, err
+	}
+
+	return snapshot, ioStats, nil
+}
