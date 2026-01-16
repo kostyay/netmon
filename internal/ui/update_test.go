@@ -696,3 +696,192 @@ func TestExtractPorts_EmptyConnections(t *testing.T) {
 	}
 }
 
+// Tests for kill mode
+
+func TestKillMode_XEntersKillMode(t *testing.T) {
+	m := createTestModel()
+	m.CurrentView().Cursor = 0
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if !newModel.killMode {
+		t.Error("killMode should be true after pressing 'x'")
+	}
+	if newModel.killTarget == nil {
+		t.Error("killTarget should not be nil")
+	}
+	if newModel.killTarget.Signal != "SIGTERM" {
+		t.Errorf("Signal = %s, want SIGTERM", newModel.killTarget.Signal)
+	}
+	if newModel.killTarget.PID != 100 {
+		t.Errorf("PID = %d, want 100", newModel.killTarget.PID)
+	}
+}
+
+func TestKillMode_ShiftXEntersKillModeWithSIGKILL(t *testing.T) {
+	m := createTestModel()
+	m.CurrentView().Cursor = 0
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'X'}}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if !newModel.killMode {
+		t.Error("killMode should be true after pressing 'X'")
+	}
+	if newModel.killTarget == nil {
+		t.Error("killTarget should not be nil")
+	}
+	if newModel.killTarget.Signal != "SIGKILL" {
+		t.Errorf("Signal = %s, want SIGKILL", newModel.killTarget.Signal)
+	}
+}
+
+func TestKillMode_NCancelsKillMode(t *testing.T) {
+	m := createTestModel()
+	m.killMode = true
+	m.killTarget = &killTargetInfo{PID: 100, ProcessName: "App1", Signal: "SIGTERM"}
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.killMode {
+		t.Error("killMode should be false after pressing 'n'")
+	}
+	if newModel.killTarget != nil {
+		t.Error("killTarget should be nil after cancel")
+	}
+}
+
+func TestKillMode_EscCancelsKillMode(t *testing.T) {
+	m := createTestModel()
+	m.killMode = true
+	m.killTarget = &killTargetInfo{PID: 100, ProcessName: "App1", Signal: "SIGTERM"}
+
+	msg := tea.KeyMsg{Type: tea.KeyEsc}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.killMode {
+		t.Error("killMode should be false after pressing Esc")
+	}
+	if newModel.killTarget != nil {
+		t.Error("killTarget should be nil after cancel")
+	}
+}
+
+func TestKillMode_YConfirmsKill(t *testing.T) {
+	m := createTestModel()
+	m.killMode = true
+	m.killTarget = &killTargetInfo{PID: 99999, ProcessName: "FakeApp", Signal: "SIGTERM"}
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.killMode {
+		t.Error("killMode should be false after kill attempt")
+	}
+	if newModel.killTarget != nil {
+		t.Error("killTarget should be nil after kill")
+	}
+	// killResult should be set (either success or failure message)
+	if newModel.killResult == "" {
+		t.Error("killResult should be set after kill attempt")
+	}
+	if newModel.killResultAt.IsZero() {
+		t.Error("killResultAt should be set after kill attempt")
+	}
+}
+
+func TestKillMode_XWithNilSnapshotDoesNothing(t *testing.T) {
+	m := Model{
+		collector:       newMockCollector(nil),
+		refreshInterval: DefaultRefreshInterval,
+		snapshot:        nil,
+		netIOCache:      make(map[int32]*model.NetIOStats),
+		stack: []ViewState{{
+			Level:  LevelProcessList,
+			Cursor: 0,
+		}},
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.killMode {
+		t.Error("killMode should be false with nil snapshot")
+	}
+}
+
+func TestKillMode_OtherKeysIgnored(t *testing.T) {
+	m := createTestModel()
+	m.killMode = true
+	m.killTarget = &killTargetInfo{PID: 100, ProcessName: "App1", Signal: "SIGTERM"}
+
+	// Try pressing 'q' which normally quits - should be ignored in kill mode
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if !newModel.killMode {
+		t.Error("killMode should still be true (other keys ignored)")
+	}
+	if newModel.quitting {
+		t.Error("quitting should be false (q key should be ignored in kill mode)")
+	}
+}
+
+func TestKillMode_AllConnectionsView(t *testing.T) {
+	m := createTestModel()
+	// Set up test snapshot with connections
+	m.snapshot.Applications[0].Connections = []model.Connection{
+		{PID: 100, LocalAddr: "127.0.0.1:8080", Protocol: "TCP", State: "ESTABLISHED"},
+	}
+	// Switch to all connections view
+	m.stack = []ViewState{{
+		Level:          LevelAllConnections,
+		Cursor:         0,
+		SortColumn:     SortProcess,
+		SortAscending:  true,
+		SelectedColumn: SortProcess,
+	}}
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if !newModel.killMode {
+		t.Error("killMode should be true")
+	}
+	if newModel.killTarget == nil {
+		t.Error("killTarget should not be nil")
+	}
+	if newModel.killTarget.Port != 8080 {
+		t.Errorf("Port = %d, want 8080", newModel.killTarget.Port)
+	}
+}
+
+func TestExtractSinglePort(t *testing.T) {
+	tests := []struct {
+		addr string
+		want int
+	}{
+		{"127.0.0.1:8080", 8080},
+		{"[::1]:9090", 9090},
+		{"*:80", 80},
+		{"*", 0},
+		{"", 0},
+	}
+
+	for _, tt := range tests {
+		got := extractSinglePort(tt.addr)
+		if got != tt.want {
+			t.Errorf("extractSinglePort(%q) = %d, want %d", tt.addr, got, tt.want)
+		}
+	}
+}

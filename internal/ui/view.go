@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/kostyay/netmon/internal/model"
 )
@@ -223,8 +224,16 @@ func (m Model) renderBreadcrumbsText() string {
 func (m Model) renderFooter() string {
 	var b strings.Builder
 
-	// Row 1: Search input or breadcrumbs
-	if m.searchMode {
+	// Row 1: Kill mode, result message, search input, or breadcrumbs
+	if m.killMode && m.killTarget != nil {
+		// Show kill confirmation prompt
+		prompt := fmt.Sprintf("Kill PID %d (%s) with %s? [y/n]",
+			m.killTarget.PID, m.killTarget.ProcessName, m.killTarget.Signal)
+		b.WriteString(ErrorStyle().Width(m.width).Render(prompt))
+	} else if m.killResult != "" && time.Since(m.killResultAt) < 2*time.Second {
+		// Show kill result message (auto-dismiss after 2s)
+		b.WriteString(StatusStyle().Width(m.width).Render(m.killResult))
+	} else if m.searchMode {
 		// Show search input with cursor
 		b.WriteString(StatusStyle().Width(m.width).Render(fmt.Sprintf("/%s█", m.searchQuery)))
 	} else if m.activeFilter != "" {
@@ -252,6 +261,16 @@ func (m Model) renderKeybindingsText() string {
 
 	if view == nil {
 		return ""
+	}
+
+	// Kill mode keybindings
+	if m.killMode {
+		parts = []string{
+			descStyle.Render("[KILL]"),
+			keyStyle.Render("y") + descStyle.Render(" Confirm"),
+			keyStyle.Render("n/Esc") + descStyle.Render(" Cancel"),
+		}
+		return strings.Join(parts, "  ")
 	}
 
 	// Sort mode has its own keybindings
@@ -282,6 +301,7 @@ func (m Model) renderKeybindingsText() string {
 			keyStyle.Render("Enter") + descStyle.Render(" Drill-in"),
 			keyStyle.Render("/") + descStyle.Render(" Search"),
 			keyStyle.Render("s") + descStyle.Render(" Sort"),
+			keyStyle.Render("x/X") + descStyle.Render(" Kill"),
 			keyStyle.Render("v") + descStyle.Render(" All"),
 			keyStyle.Render("q") + descStyle.Render(" Quit"),
 		}
@@ -290,6 +310,7 @@ func (m Model) renderKeybindingsText() string {
 			keyStyle.Render("↑↓") + descStyle.Render(" Navigate"),
 			keyStyle.Render("/") + descStyle.Render(" Search"),
 			keyStyle.Render("s") + descStyle.Render(" Sort"),
+			keyStyle.Render("x/X") + descStyle.Render(" Kill"),
 			keyStyle.Render("Esc") + descStyle.Render(" Back"),
 			keyStyle.Render("v") + descStyle.Render(" All"),
 			keyStyle.Render("q") + descStyle.Render(" Quit"),
@@ -299,6 +320,7 @@ func (m Model) renderKeybindingsText() string {
 			keyStyle.Render("↑↓") + descStyle.Render(" Navigate"),
 			keyStyle.Render("/") + descStyle.Render(" Search"),
 			keyStyle.Render("s") + descStyle.Render(" Sort"),
+			keyStyle.Render("x/X") + descStyle.Render(" Kill"),
 			keyStyle.Render("v") + descStyle.Render(" Grouped"),
 			keyStyle.Render("q") + descStyle.Render(" Quit"),
 		}
@@ -929,4 +951,3 @@ func (m Model) cursorLinePosition() int {
 	const tableHeaderLines = 1
 	return view.Cursor + tableHeaderLines
 }
-

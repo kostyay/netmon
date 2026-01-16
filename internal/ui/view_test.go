@@ -767,3 +767,110 @@ func TestRenderFooter_ContainsBothRows(t *testing.T) {
 		t.Error("Footer should contain 'Quit' keybinding")
 	}
 }
+
+// Tests for kill mode UI rendering
+
+func TestRenderFooter_KillMode(t *testing.T) {
+	m := Model{
+		killMode: true,
+		killTarget: &killTargetInfo{
+			PID:         12345,
+			ProcessName: "TestApp",
+			Signal:      "SIGTERM",
+		},
+		stack: []ViewState{{
+			Level: LevelProcessList,
+		}},
+	}
+
+	result := m.renderFooter()
+
+	// Should show kill confirmation prompt
+	if !strings.Contains(result, "Kill PID 12345") {
+		t.Error("Footer should contain kill PID")
+	}
+	if !strings.Contains(result, "TestApp") {
+		t.Error("Footer should contain process name in kill prompt")
+	}
+	if !strings.Contains(result, "SIGTERM") {
+		t.Error("Footer should contain signal in kill prompt")
+	}
+	if !strings.Contains(result, "[y/n]") {
+		t.Error("Footer should contain [y/n] confirmation")
+	}
+}
+
+func TestRenderFooter_KillResult(t *testing.T) {
+	m := Model{
+		killResult:   "Killed PID 12345 (TestApp)",
+		killResultAt: time.Now(), // Recent
+		stack: []ViewState{{
+			Level: LevelProcessList,
+		}},
+	}
+
+	result := m.renderFooter()
+
+	// Should show kill result
+	if !strings.Contains(result, "Killed PID 12345") {
+		t.Error("Footer should contain kill result message")
+	}
+}
+
+func TestRenderFooter_KillResultExpired(t *testing.T) {
+	m := Model{
+		killResult:      "Killed PID 12345 (TestApp)",
+		killResultAt:    time.Now().Add(-3 * time.Second), // More than 2s ago
+		refreshInterval: 2 * time.Second,
+		stack: []ViewState{{
+			Level: LevelProcessList,
+		}},
+	}
+
+	result := m.renderFooter()
+
+	// Should NOT show expired kill result (shows breadcrumbs instead)
+	if strings.Contains(result, "Killed PID 12345") {
+		t.Error("Footer should NOT contain expired kill result message")
+	}
+	if !strings.Contains(result, "Processes") {
+		t.Error("Footer should show breadcrumbs when kill result expired")
+	}
+}
+
+func TestRenderKeybindings_KillMode(t *testing.T) {
+	m := Model{
+		killMode: true,
+		stack: []ViewState{{
+			Level: LevelProcessList,
+		}},
+	}
+
+	result := m.renderKeybindingsText()
+
+	// Kill mode keybindings
+	if !strings.Contains(result, "[KILL]") {
+		t.Error("Keybindings should contain '[KILL]' label")
+	}
+	if !strings.Contains(result, "Confirm") {
+		t.Error("Keybindings should contain 'Confirm'")
+	}
+	if !strings.Contains(result, "Cancel") {
+		t.Error("Keybindings should contain 'Cancel'")
+	}
+}
+
+func TestRenderKeybindings_ContainsKillKey(t *testing.T) {
+	m := Model{
+		stack: []ViewState{{
+			Level: LevelProcessList,
+		}},
+	}
+
+	result := m.renderKeybindingsText()
+
+	// Process list should show x/X for kill
+	if !strings.Contains(result, "x/X") || !strings.Contains(result, "Kill") {
+		t.Error("Keybindings should contain 'x/X Kill'")
+	}
+}

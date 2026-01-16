@@ -2,8 +2,10 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
@@ -49,6 +51,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Kill mode intercepts all keys
+		if m.killMode {
+			switch msg.String() {
+			case "y", "Y":
+				return m.executeKill()
+			case "n", "N", "esc":
+				m.killMode = false
+				m.killTarget = nil
+				return m, nil
+			}
+			return m, nil // Ignore other keys in kill mode
+		}
+
 		// Search mode intercepts all keys
 		if m.searchMode {
 			switch msg.String() {
@@ -224,6 +239,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.searchMode = true
 			m.searchQuery = m.activeFilter // pre-fill with current filter
 			return m, nil
+
+		case "x":
+			// Kill with SIGTERM
+			return m.enterKillMode("SIGTERM")
+
+		case "X":
+			// Kill with SIGKILL
+			return m.enterKillMode("SIGKILL")
 
 		default:
 			// Pass unhandled keys to viewport for page up/down, mouse scroll, etc.
@@ -452,3 +475,118 @@ func extractPortsFromAddrs(addrs ...string) []int {
 	return ports
 }
 
+// enterKillMode sets up kill mode with the currently selected target.
+func (m Model) enterKillMode(signal string) (tea.Model, tea.Cmd) {
+	if m.snapshot == nil {
+		return m, nil
+	}
+	view := m.CurrentView()
+	if view == nil {
+		return m, nil
+	}
+
+	var target *killTargetInfo
+
+	switch view.Level {
+	case LevelProcessList:
+		// Get PID from selected process
+		apps := m.filteredApps()
+		if view.Cursor >= len(apps) {
+			return m, nil
+		}
+		app := apps[view.Cursor]
+		if len(app.PIDs) == 0 {
+			return m, nil
+		}
+		target = &killTargetInfo{
+			PID:         app.PIDs[0], // Use first PID
+			ProcessName: app.Name,
+			Signal:      signal,
+		}
+
+	case LevelConnections:
+		// Get PID from selected connection within the process
+		for _, app := range m.snapshot.Applications {
+			if app.Name != view.ProcessName {
+				continue
+			}
+			if view.Cursor >= len(app.Connections) {
+				return m, nil
+			}
+			conn := app.Connections[view.Cursor]
+			port := extractSinglePort(conn.LocalAddr)
+			target = &killTargetInfo{
+				PID:         conn.PID,
+				ProcessName: app.Name,
+				Port:        port,
+				Signal:      signal,
+			}
+			break
+		}
+
+	case LevelAllConnections:
+		// Get PID from selected connection in flat view
+		conns := m.filteredAllConnections()
+		if view.Cursor >= len(conns) {
+			return m, nil
+		}
+		conn := conns[view.Cursor]
+		port := extractSinglePort(conn.LocalAddr)
+		target = &killTargetInfo{
+			PID:         conn.PID,
+			ProcessName: conn.ProcessName,
+			Port:        port,
+			Signal:      signal,
+		}
+	}
+
+	if target == nil {
+		return m, nil
+	}
+
+	m.killMode = true
+	m.killTarget = target
+	return m, nil
+}
+
+// extractSinglePort extracts port from an address like "127.0.0.1:8080".
+func extractSinglePort(addr string) int {
+	if idx := strings.LastIndex(addr, ":"); idx != -1 {
+		if port, err := strconv.Atoi(addr[idx+1:]); err == nil {
+			return port
+		}
+	}
+	return 0
+}
+
+// signalMap maps signal names to syscall.Signal values.
+var signalMap = map[string]syscall.Signal{
+	"SIGTERM": syscall.SIGTERM,
+	"SIGKILL": syscall.SIGKILL,
+}
+
+// executeKill sends the signal to the target process.
+func (m Model) executeKill() (tea.Model, tea.Cmd) {
+	if m.killTarget == nil {
+		m.killMode = false
+		return m, nil
+	}
+
+	sig, ok := signalMap[m.killTarget.Signal]
+	if !ok {
+		sig = syscall.SIGTERM
+	}
+
+	err := syscall.Kill(int(m.killTarget.PID), sig)
+	m.killMode = false
+
+	if err != nil {
+		m.killResult = fmt.Sprintf("Failed to kill PID %d: %v", m.killTarget.PID, err)
+	} else {
+		m.killResult = fmt.Sprintf("Killed PID %d (%s)", m.killTarget.PID, m.killTarget.ProcessName)
+	}
+	m.killResultAt = time.Now()
+	m.killTarget = nil
+
+	return m, nil
+}

@@ -135,6 +135,20 @@ type Model struct {
 	searchMode   bool   // true when search input is active
 	searchQuery  string // current search text (live updates while typing)
 	activeFilter string // confirmed filter (applied after Enter)
+
+	// Kill mode state
+	killMode     bool            // true when kill confirmation dialog is active
+	killTarget   *killTargetInfo // target process/connection to kill
+	killResult   string          // result message from kill operation
+	killResultAt time.Time       // when killResult was set (for auto-dismiss)
+}
+
+// killTargetInfo holds info about the process to be killed.
+type killTargetInfo struct {
+	PID         int32
+	ProcessName string
+	Port        int    // optional, 0 if killing by PID only
+	Signal      string // signal to send (default SIGTERM)
 }
 
 // NewModel creates a new Model with default settings.
