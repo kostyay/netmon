@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kostyay/netmon/internal/config"
 )
@@ -107,13 +109,25 @@ func SortIndicatorStyle() lipgloss.Style {
 		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Table.SortIndicator))
 }
 
+// AddedConnStyle returns the style for newly added connections.
+func AddedConnStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Table.AddedFgColor))
+}
+
+// RemovedConnStyle returns the style for removed connections.
+func RemovedConnStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Table.RemovedFgColor))
+}
+
 // FrameStyle returns the style for the main content frame with border.
 func FrameStyle(width, height int) lipgloss.Style {
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(config.CurrentTheme.Styles.Table.HeaderFgColor)).
-		Width(width - 2).   // Account for border
-		Height(height - 2). // Account for border
+		Width(width-2).   // Account for border
+		Height(height-2). // Account for border
 		Padding(0, 1)
 }
 
@@ -152,20 +166,20 @@ func RenderFrameWithTitle(content string, title string, width, height int) strin
 	rightPad := remainingWidth - leftPad
 
 	topBorder := borderStyle.Render(topLeft)
-	topBorder += borderStyle.Render(repeatString(horizontal, leftPad))
+	topBorder += borderStyle.Render(strings.Repeat(horizontal, leftPad))
 	topBorder += titleStyle.Render(titleWithPadding)
-	topBorder += borderStyle.Render(repeatString(horizontal, rightPad))
+	topBorder += borderStyle.Render(strings.Repeat(horizontal, rightPad))
 	topBorder += borderStyle.Render(topRight)
 
 	// Build bottom border
 	bottomBorder := borderStyle.Render(bottomLeft)
-	bottomBorder += borderStyle.Render(repeatString(horizontal, innerWidth))
+	bottomBorder += borderStyle.Render(strings.Repeat(horizontal, innerWidth))
 	bottomBorder += borderStyle.Render(bottomRight)
 
 	// Style for content area with padding
 	contentStyle := lipgloss.NewStyle().
 		Width(innerWidth).
-		Height(height - 2).
+		Height(height-2).
 		Padding(0, 1)
 
 	styledContent := contentStyle.Render(content)
@@ -186,35 +200,12 @@ func RenderFrameWithTitle(content string, title string, width, height int) strin
 	return result
 }
 
-// repeatString repeats a string n times.
-func repeatString(s string, n int) string {
-	if n <= 0 {
-		return ""
-	}
-	result := ""
-	for i := 0; i < n; i++ {
-		result += s
-	}
-	return result
-}
-
 // splitLines splits a string into lines.
 func splitLines(s string) []string {
-	var lines []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			lines = append(lines, s[start:i])
-			start = i + 1
-		}
+	if s == "" {
+		return []string{""}
 	}
-	if start < len(s) {
-		lines = append(lines, s[start:])
-	}
-	if len(lines) == 0 {
-		lines = []string{""}
-	}
-	return lines
+	return strings.Split(s, "\n")
 }
 
 // padRight pads a string to the specified width.
@@ -225,5 +216,12 @@ func padRight(s string, width int) string {
 		return s
 	}
 	padding := width - visibleWidth
-	return s + repeatString(" ", padding)
+	return s + strings.Repeat(" ", padding)
+}
+
+// DimmedStyle returns a style for dimmed background content when modal is visible.
+func DimmedStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Modal.DimmedFgColor)).
+		Faint(true)
 }

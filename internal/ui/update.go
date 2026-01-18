@@ -2,14 +2,14 @@ package ui
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/kostyay/netmon/internal/config"
+	"github.com/kostyay/netmon/internal/dns"
 	"github.com/kostyay/netmon/internal/model"
 )
 
@@ -22,8 +22,16 @@ func (m Model) Init() tea.Cmd {
 	)
 }
 
-// Update handles messages.
+// Update handles messages and ensures viewport scroll is synced after any state change.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	result, cmd := m.update(msg)
+	newModel := result.(Model)
+	newModel.syncViewportScroll()
+	return newModel, cmd
+}
+
+// update handles messages (internal implementation).
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -51,12 +59,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		key := msg.String()
+
 		// Kill mode intercepts all keys
 		if m.killMode {
-			switch msg.String() {
-			case "y", "Y":
+			if matchKey(key, KeyConfirmYes) || key == "Y" {
 				return m.executeKill()
-			case "n", "N", "esc":
+			}
+			if matchKey(key, KeyConfirmNo, KeyEsc) || key == "N" {
 				m.killMode = false
 				m.killTarget = nil
 				return m, nil
@@ -64,57 +74,112 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil // Ignore other keys in kill mode
 		}
 
+		// Help mode intercepts all keys
+		if m.helpMode {
+			if matchKey(key, KeyEsc, KeyQuit, KeyHelp) {
+				m.helpMode = false
+				return m, nil
+			}
+			return m, nil // Ignore other keys in help mode
+		}
+
+		// Settings mode intercepts all keys
+		if m.settingsMode {
+			if matchKey(key, KeyEsc, KeySettings) {
+				m.settingsMode = false
+				return m, nil
+			}
+			if matchKey(key, KeyUp, KeyUpAlt) {
+				if m.settingsCursor > 0 {
+					m.settingsCursor--
+				}
+				return m, nil
+			}
+			if matchKey(key, KeyDown, KeyDownAlt) {
+				maxCursor := 1 // Number of settings - 1
+				if m.settingsCursor < maxCursor {
+					m.settingsCursor++
+				}
+				return m, nil
+			}
+			if matchKey(key, KeyEnter, KeySpace) {
+				// Toggle the selected setting
+				switch m.settingsCursor {
+				case 0: // DNS Resolution
+					m.dnsEnabled = !m.dnsEnabled
+					config.CurrentSettings.DNSEnabled = m.dnsEnabled
+					_ = config.SaveSettings(config.CurrentSettings)
+				case 1: // Service Names
+					m.serviceNames = !m.serviceNames
+					config.CurrentSettings.ServiceNames = m.serviceNames
+					_ = config.SaveSettings(config.CurrentSettings)
+				}
+				return m, nil
+			}
+			return m, nil // Ignore other keys in settings mode
+		}
+
 		// Search mode intercepts all keys
 		if m.searchMode {
-			switch msg.String() {
-			case "enter":
+			if matchKey(key, KeyEnter) {
 				m.activeFilter = m.searchQuery
 				m.searchMode = false
 				m.clampCursor()
 				return m, nil
-			case "esc":
+			}
+			if matchKey(key, KeyEsc) {
 				m.searchQuery = m.activeFilter // revert to confirmed
 				m.searchMode = false
 				return m, nil
-			case "backspace":
+			}
+			if matchKey(key, KeyBack) {
 				if len(m.searchQuery) > 0 {
 					m.searchQuery = m.searchQuery[:len(m.searchQuery)-1]
 				}
 				return m, nil
-			default:
-				// Append printable characters
-				r := msg.Runes
-				if len(r) == 1 && r[0] >= 32 {
-					m.searchQuery += string(r)
-				}
-				return m, nil
 			}
-		}
-
-		switch msg.String() {
-		case "q", "ctrl+c":
-			m.quitting = true
-			return m, tea.Quit
-
-		case "up", "k":
-			view := m.CurrentView()
-			if view != nil && view.Cursor > 0 {
-				view.Cursor--
+			// Append printable characters
+			r := msg.Runes
+			if len(r) == 1 && r[0] >= 32 {
+				m.searchQuery += string(r)
 			}
 			return m, nil
+		}
 
-		case "down", "j":
+		// Global keybindings
+		if matchKey(key, KeyQuit, KeyQuitAlt) {
+			m.quitting = true
+			return m, tea.Quit
+		}
+
+		if matchKey(key, KeyUp, KeyUpAlt) {
+			view := m.CurrentView()
+			if view == nil {
+				return m, nil
+			}
+			// Use cursor directly (not resolveSelectionIndex) to handle duplicate items
+			if view.Cursor > 0 {
+				view.Cursor--
+				m.updateSelectedIDFromCursor()
+			}
+			return m, nil
+		}
+
+		if matchKey(key, KeyDown, KeyDownAlt) {
 			view := m.CurrentView()
 			if view == nil || m.snapshot == nil {
 				return m, nil
 			}
-			maxCursor := m.maxCursorForLevel(view.Level)
-			if view.Cursor < maxCursor-1 {
+			maxCursor := m.filteredCount()
+			// Use cursor directly (not resolveSelectionIndex) to handle duplicate items
+			if maxCursor > 0 && view.Cursor < maxCursor-1 {
 				view.Cursor++
+				m.updateSelectedIDFromCursor()
 			}
 			return m, nil
+		}
 
-		case "left", "h":
+		if matchKey(key, KeyLeft, KeyLeftAlt) {
 			view := m.CurrentView()
 			if view == nil || !view.SortMode {
 				return m, nil
@@ -126,8 +191,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				view.SelectedColumn = columns[currentIdx-1]
 			}
 			return m, nil
+		}
 
-		case "right", "l":
+		if matchKey(key, KeyRight, KeyRightAlt) {
 			view := m.CurrentView()
 			if view == nil || !view.SortMode {
 				return m, nil
@@ -139,8 +205,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				view.SelectedColumn = columns[currentIdx+1]
 			}
 			return m, nil
+		}
 
-		case "enter", " ":
+		if matchKey(key, KeyEnter, KeySpace) {
 			view := m.CurrentView()
 			if view == nil || m.snapshot == nil {
 				return m, nil
@@ -158,12 +225,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// Not in sort mode - drill down on process list
 			if view.Level == LevelProcessList {
-				if view.Cursor < len(m.snapshot.Applications) {
-					app := m.snapshot.Applications[view.Cursor]
+				apps := m.sortProcessList(m.filteredApps())
+				// Use cursor directly for selection
+				if view.Cursor >= 0 && view.Cursor < len(apps) {
+					app := apps[view.Cursor]
+					// Clear filter when drilling down (different search context)
+					m.activeFilter = ""
+					m.searchQuery = ""
 					m.PushView(ViewState{
 						Level:          LevelConnections,
 						ProcessName:    app.Name,
 						Cursor:         0,
+						SelectedID:     model.SelectionID{}, // Start fresh in new view
 						SortColumn:     SortLocal,
 						SortAscending:  true,
 						SelectedColumn: SortLocal,
@@ -171,8 +244,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m, nil
+		}
 
-		case "esc", "backspace":
+		if matchKey(key, KeyEsc, KeyBack) {
 			view := m.CurrentView()
 			if view != nil && view.SortMode {
 				// Exit sort mode without changing sort
@@ -182,22 +256,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Pop view (go back)
 			m.PopView()
 			return m, nil
+		}
 
-		case "+", "=":
+		if matchKey(key, KeyRefreshUp) || key == "=" {
 			// Decrease refresh interval (faster refresh)
 			if m.refreshInterval > MinRefreshInterval {
 				m.refreshInterval -= RefreshStep
 			}
 			return m, nil
+		}
 
-		case "-", "_":
+		if matchKey(key, KeyRefreshDown) || key == "_" {
 			// Increase refresh interval (slower refresh)
 			if m.refreshInterval < MaxRefreshInterval {
 				m.refreshInterval += RefreshStep
 			}
 			return m, nil
+		}
 
-		case "s":
+		if matchKey(key, KeySortMode) {
 			// Enter sort mode
 			view := m.CurrentView()
 			if view == nil || view.SortMode {
@@ -206,8 +283,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			view.SortMode = true
 			view.SelectedColumn = view.SortColumn // Start at current sort column
 			return m, nil
+		}
 
-		case "v":
+		if matchKey(key, KeyToggleView) {
 			// Toggle between grouped (process list) and ungrouped (all connections) view
 			view := m.CurrentView()
 			if view == nil {
@@ -233,31 +311,47 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}}
 			}
 			return m, nil
+		}
 
-		case "/":
+		if matchKey(key, KeySearch) {
 			// Enter search mode
 			m.searchMode = true
 			m.searchQuery = m.activeFilter // pre-fill with current filter
 			return m, nil
+		}
 
-		case "x":
-			// Kill with SIGTERM
+		if matchKey(key, KeyKillTerm) {
 			return m.enterKillMode("SIGTERM")
+		}
 
-		case "X":
-			// Kill with SIGKILL
+		if matchKey(key, KeyKillForce) {
 			return m.enterKillMode("SIGKILL")
+		}
 
-		default:
-			// Pass unhandled keys to viewport for page up/down, mouse scroll, etc.
-			if m.ready {
-				var cmd tea.Cmd
-				m.viewport, cmd = m.viewport.Update(msg)
-				return m, cmd
-			}
+		if matchKey(key, KeySettings) {
+			// Open settings modal
+			m.settingsMode = true
+			m.settingsCursor = 0
+			return m, nil
+		}
+
+		if matchKey(key, KeyHelp) {
+			// Open help modal
+			m.helpMode = true
+			return m, nil
+		}
+
+		// Pass unhandled keys to viewport for page up/down, mouse scroll, etc.
+		if m.ready {
+			var cmd tea.Cmd
+			m.viewport, cmd = m.viewport.Update(msg)
+			return m, cmd
 		}
 
 	case TickMsg:
+		// Prune expired change highlights (older than 3s)
+		m.pruneExpiredChanges(3 * time.Second)
+
 		// Schedule next tick and fetch new data
 		return m, tea.Batch(
 			m.tickCmd(),
@@ -274,18 +368,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Clear error on successful fetch
 		m.lastError = nil
-		m.snapshot = msg.Snapshot
-		// Ensure cursor is valid for current view level
-		view := m.CurrentView()
-		if view != nil && m.snapshot != nil {
-			maxCursor := m.maxCursorForLevel(view.Level)
-			if maxCursor > 0 && view.Cursor >= maxCursor {
-				view.Cursor = maxCursor - 1
-			} else if maxCursor == 0 {
-				view.Cursor = 0
-			}
+
+		// Diff connections and merge new changes
+		newChanges := diffConnections(m.snapshot, msg.Snapshot)
+		for k, v := range newChanges {
+			m.changes[k] = v
 		}
-		return m, nil
+
+		// Store current as previous for next diff
+		m.prevSnapshot = m.snapshot
+		m.snapshot = msg.Snapshot
+
+		// Validate selection using ID-based resolution (handles item reordering)
+		m.validateSelection()
+
+		// Queue DNS lookups for new IPs (if enabled)
+		dnsCmd := m.queueDNSLookups(msg.Snapshot)
+		return m, dnsCmd
 
 	case NetIOMsg:
 		if msg.Err != nil {
@@ -296,6 +395,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for pid, stats := range msg.Stats {
 			m.netIOCache[pid] = stats
 		}
+		return m, nil
+
+	case DNSResolvedMsg:
+		if msg.Err != nil {
+			// Cache failed lookup to avoid repeated attempts
+			m.dnsCache[msg.IP] = ""
+			return m, nil
+		}
+		// Cache successful lookup
+		m.dnsCache[msg.IP] = msg.Hostname
 		return m, nil
 	}
 
@@ -328,6 +437,65 @@ func (m Model) fetchNetIO() tea.Cmd {
 	}
 }
 
+// resolveDNS returns a command to resolve an IP address.
+func (m Model) resolveDNS(ip string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		result := <-dns.ResolveAsync(ctx, ip)
+		return DNSResolvedMsg{IP: result.IP, Hostname: result.Hostname, Err: result.Err}
+	}
+}
+
+// queueDNSLookups returns commands for IPs that need resolution.
+func (m Model) queueDNSLookups(snapshot *model.NetworkSnapshot) tea.Cmd {
+	if !m.dnsEnabled || snapshot == nil {
+		return nil
+	}
+
+	var cmds []tea.Cmd
+	seen := make(map[string]bool)
+
+	for _, app := range snapshot.Applications {
+		for _, conn := range app.Connections {
+			// Extract IP from remote address (skip port)
+			ip := extractIP(conn.RemoteAddr)
+			if ip == "" || ip == "*" || seen[ip] {
+				continue
+			}
+			seen[ip] = true
+
+			// Skip if already cached
+			if _, ok := m.dnsCache[ip]; ok {
+				continue
+			}
+
+			// Queue resolution (limit to avoid flooding)
+			if len(cmds) < 10 {
+				cmds = append(cmds, m.resolveDNS(ip))
+			}
+		}
+	}
+
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
+}
+
+// extractIP extracts the IP portion from an address like "192.168.1.1:8080".
+func extractIP(addr string) string {
+	if addr == "" || addr == "*" {
+		return ""
+	}
+	idx := strings.LastIndex(addr, ":")
+	if idx < 0 {
+		return addr
+	}
+	return addr[:idx]
+}
+
 // maxCursorForLevel returns the maximum cursor position for the given view level.
 func (m Model) maxCursorForLevel(level ViewLevel) int {
 	if m.snapshot == nil {
@@ -351,20 +519,6 @@ func (m Model) maxCursorForLevel(level ViewLevel) int {
 		return m.snapshot.TotalConnections()
 	default:
 		return 0
-	}
-}
-
-// maxColumnForLevel returns the number of columns for the given view level.
-func (m Model) maxColumnForLevel(level ViewLevel) int {
-	switch level {
-	case LevelProcessList:
-		return len(processListColumns())
-	case LevelConnections:
-		return len(connectionsColumns())
-	case LevelAllConnections:
-		return len(allConnectionsColumns())
-	default:
-		return 1
 	}
 }
 
@@ -418,10 +572,7 @@ func (m *Model) filteredCount() int {
 	if m.snapshot == nil {
 		return 0
 	}
-	filter := m.activeFilter
-	if m.searchMode {
-		filter = m.searchQuery
-	}
+	filter := m.currentFilter()
 	if filter == "" {
 		return m.maxCursorForLevel(m.CurrentView().Level)
 	}
@@ -437,6 +588,20 @@ func (m *Model) filteredCount() int {
 			}
 		}
 		return count
+	case LevelConnections:
+		// Find the process and count filtered connections
+		for _, app := range m.snapshot.Applications {
+			if app.Name == view.ProcessName {
+				count := 0
+				for _, conn := range app.Connections {
+					if matchesConnection(filter, conn) {
+						count++
+					}
+				}
+				return count
+			}
+		}
+		return 0
 	case LevelAllConnections:
 		count := 0
 		for _, app := range m.snapshot.Applications {
@@ -451,6 +616,37 @@ func (m *Model) filteredCount() int {
 	default:
 		return m.maxCursorForLevel(view.Level)
 	}
+}
+
+// matchesConnection checks if a connection matches the filter string.
+// Matches against local/remote addresses, protocol, state, and ports.
+func matchesConnection(filter string, conn model.Connection) bool {
+	if filter == "" {
+		return true
+	}
+	filter = strings.ToLower(filter)
+
+	// Match local address
+	if strings.Contains(strings.ToLower(conn.LocalAddr), filter) {
+		return true
+	}
+
+	// Match remote address
+	if strings.Contains(strings.ToLower(conn.RemoteAddr), filter) {
+		return true
+	}
+
+	// Match protocol
+	if strings.Contains(strings.ToLower(string(conn.Protocol)), filter) {
+		return true
+	}
+
+	// Match state
+	if strings.Contains(strings.ToLower(string(conn.State)), filter) {
+		return true
+	}
+
+	return false
 }
 
 // extractPorts gets all ports from connections for filter matching.
@@ -473,120 +669,4 @@ func extractPortsFromAddrs(addrs ...string) []int {
 		}
 	}
 	return ports
-}
-
-// enterKillMode sets up kill mode with the currently selected target.
-func (m Model) enterKillMode(signal string) (tea.Model, tea.Cmd) {
-	if m.snapshot == nil {
-		return m, nil
-	}
-	view := m.CurrentView()
-	if view == nil {
-		return m, nil
-	}
-
-	var target *killTargetInfo
-
-	switch view.Level {
-	case LevelProcessList:
-		// Get PID from selected process
-		apps := m.filteredApps()
-		if view.Cursor >= len(apps) {
-			return m, nil
-		}
-		app := apps[view.Cursor]
-		if len(app.PIDs) == 0 {
-			return m, nil
-		}
-		target = &killTargetInfo{
-			PID:         app.PIDs[0], // Use first PID
-			ProcessName: app.Name,
-			Signal:      signal,
-		}
-
-	case LevelConnections:
-		// Get PID from selected connection within the process
-		for _, app := range m.snapshot.Applications {
-			if app.Name != view.ProcessName {
-				continue
-			}
-			if view.Cursor >= len(app.Connections) {
-				return m, nil
-			}
-			conn := app.Connections[view.Cursor]
-			port := extractSinglePort(conn.LocalAddr)
-			target = &killTargetInfo{
-				PID:         conn.PID,
-				ProcessName: app.Name,
-				Port:        port,
-				Signal:      signal,
-			}
-			break
-		}
-
-	case LevelAllConnections:
-		// Get PID from selected connection in flat view
-		conns := m.filteredAllConnections()
-		if view.Cursor >= len(conns) {
-			return m, nil
-		}
-		conn := conns[view.Cursor]
-		port := extractSinglePort(conn.LocalAddr)
-		target = &killTargetInfo{
-			PID:         conn.PID,
-			ProcessName: conn.ProcessName,
-			Port:        port,
-			Signal:      signal,
-		}
-	}
-
-	if target == nil {
-		return m, nil
-	}
-
-	m.killMode = true
-	m.killTarget = target
-	return m, nil
-}
-
-// extractSinglePort extracts port from an address like "127.0.0.1:8080".
-func extractSinglePort(addr string) int {
-	if idx := strings.LastIndex(addr, ":"); idx != -1 {
-		if port, err := strconv.Atoi(addr[idx+1:]); err == nil {
-			return port
-		}
-	}
-	return 0
-}
-
-// signalMap maps signal names to syscall.Signal values.
-var signalMap = map[string]syscall.Signal{
-	"SIGTERM": syscall.SIGTERM,
-	"SIGKILL": syscall.SIGKILL,
-}
-
-// executeKill sends the signal to the target process.
-func (m Model) executeKill() (tea.Model, tea.Cmd) {
-	if m.killTarget == nil {
-		m.killMode = false
-		return m, nil
-	}
-
-	sig, ok := signalMap[m.killTarget.Signal]
-	if !ok {
-		sig = syscall.SIGTERM
-	}
-
-	err := syscall.Kill(int(m.killTarget.PID), sig)
-	m.killMode = false
-
-	if err != nil {
-		m.killResult = fmt.Sprintf("Failed to kill PID %d: %v", m.killTarget.PID, err)
-	} else {
-		m.killResult = fmt.Sprintf("Killed PID %d (%s)", m.killTarget.PID, m.killTarget.ProcessName)
-	}
-	m.killResultAt = time.Now()
-	m.killTarget = nil
-
-	return m, nil
 }

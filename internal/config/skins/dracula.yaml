@@ -25,3 +25,6 @@ styles:
   status:
     fgColor: "#6272a4"
     bgColor: "#282a36"
+
+  modal:
+    dimmedFgColor: "#6272a4"

@@ -16,21 +16,23 @@ type Color string
 
 // TableStyle defines colors for the table view.
 type TableStyle struct {
-	FgColor         Color `yaml:"fgColor"`
-	BgColor         Color `yaml:"bgColor"`
-	CursorFgColor   Color `yaml:"cursorFgColor"`
-	CursorBgColor   Color `yaml:"cursorBgColor"`
-	HeaderFgColor   Color `yaml:"headerFgColor"`
-	HeaderBgColor   Color `yaml:"headerBgColor"`
-	SortIndicator   Color `yaml:"sortIndicator"`
-	SelectedColumn  Color `yaml:"selectedColumn"`
+	FgColor        Color `yaml:"fgColor"`
+	BgColor        Color `yaml:"bgColor"`
+	CursorFgColor  Color `yaml:"cursorFgColor"`
+	CursorBgColor  Color `yaml:"cursorBgColor"`
+	HeaderFgColor  Color `yaml:"headerFgColor"`
+	HeaderBgColor  Color `yaml:"headerBgColor"`
+	SortIndicator  Color `yaml:"sortIndicator"`
+	SelectedColumn Color `yaml:"selectedColumn"`
+	AddedFgColor   Color `yaml:"addedFgColor"`   // New connections
+	RemovedFgColor Color `yaml:"removedFgColor"` // Removed connections
 }
 
 // HeaderStyle defines colors for the header section.
 type HeaderStyle struct {
-	FgColor   Color `yaml:"fgColor"`
-	BgColor   Color `yaml:"bgColor"`
-	TitleFg   Color `yaml:"titleFg"`
+	FgColor Color `yaml:"fgColor"`
+	BgColor Color `yaml:"bgColor"`
+	TitleFg Color `yaml:"titleFg"`
 }
 
 // FooterStyle defines colors for the footer section.
@@ -47,12 +49,18 @@ type StatusStyle struct {
 	BgColor Color `yaml:"bgColor"`
 }
 
+// ModalStyle defines colors for modal dialogs.
+type ModalStyle struct {
+	DimmedFgColor Color `yaml:"dimmedFgColor"` // Dimmed background when modal visible
+}
+
 // Styles holds all the theme colors.
 type Styles struct {
 	Table  TableStyle  `yaml:"table"`
 	Header HeaderStyle `yaml:"header"`
 	Footer FooterStyle `yaml:"footer"`
 	Status StatusStyle `yaml:"status"`
+	Modal  ModalStyle  `yaml:"modal"`
 }
 
 // Theme is the top-level theme configuration.
@@ -67,14 +75,16 @@ func DefaultTheme() *Theme {
 		Name: "dracula",
 		Styles: Styles{
 			Table: TableStyle{
-				FgColor:         "#f8f8f2",
-				BgColor:         "#282a36",
-				CursorFgColor:   "#282a36",
-				CursorBgColor:   "#bd93f9",
-				HeaderFgColor:   "#bd93f9",
-				HeaderBgColor:   "#282a36",
-				SortIndicator:   "#8be9fd",
-				SelectedColumn:  "#f8f8f2",
+				FgColor:        "#f8f8f2",
+				BgColor:        "#282a36",
+				CursorFgColor:  "#282a36",
+				CursorBgColor:  "#bd93f9",
+				HeaderFgColor:  "#bd93f9",
+				HeaderBgColor:  "#282a36",
+				SortIndicator:  "#8be9fd",
+				SelectedColumn: "#f8f8f2",
+				AddedFgColor:   "#50fa7b", // Dracula green
+				RemovedFgColor: "#ff5555", // Dracula red
 			},
 			Header: HeaderStyle{
 				FgColor: "#f8f8f2",
@@ -90,6 +100,9 @@ func DefaultTheme() *Theme {
 			Status: StatusStyle{
 				FgColor: "#6272a4",
 				BgColor: "#282a36",
+			},
+			Modal: ModalStyle{
+				DimmedFgColor: "#6272a4", // Dracula comment color for dimmed text
 			},
 		},
 	}

@@ -55,10 +55,12 @@ func RenderJSON(w io.Writer, snapshot *model.NetworkSnapshot, ioStats map[int32]
 		}
 
 		// Aggregate I/O stats across all PIDs
-		for _, pid := range app.PIDs {
-			if stats, ok := ioStats[pid]; ok {
-				jApp.BytesSent += stats.BytesSent
-				jApp.BytesRecv += stats.BytesRecv
+		if ioStats != nil {
+			for _, pid := range app.PIDs {
+				if stats, ok := ioStats[pid]; ok {
+					jApp.BytesSent += stats.BytesSent
+					jApp.BytesRecv += stats.BytesRecv
+				}
 			}
 		}
 

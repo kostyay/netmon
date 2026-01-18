@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -15,116 +14,6 @@ const (
 	footerHeight = 2 // crumbs + keybindings
 	frameHeight  = 2 // top and bottom border
 )
-
-// columnDef defines a table column with sizing properties.
-type columnDef struct {
-	label      string
-	id         SortColumn // column identifier for selection/sorting
-	minWidth   int        // minimum width
-	flex       int        // flex weight for extra space distribution (0 = fixed)
-	rightAlign bool       // true for right-aligned columns (numbers)
-}
-
-// renderRow renders a table row with selection styling.
-func renderRow(content string, isSelected bool) string {
-	row := "  " + content
-	if isSelected {
-		return SelectedConnStyle().Render(row) + "\n"
-	}
-	return ConnStyle().Render(row) + "\n"
-}
-
-// renderTableHeader renders a table header with optional sort indicators.
-// If showSort is false, sort indicators are not displayed (for process list).
-func renderTableHeader(columns []columnDef, widths []int, selectedCol, sortCol SortColumn, sortAsc, showSort bool) string {
-	var b strings.Builder
-
-	// Add 2-space prefix to align with data rows (which have "  " prefix from renderRow)
-	b.WriteString("  ")
-
-	headerStyle := TableHeaderStyle()
-	selectedStyle := TableHeaderSelectedStyle()
-	sortStyle := SortIndicatorStyle()
-
-	for i, col := range columns {
-		if i > 0 {
-			b.WriteString(" ")
-		}
-
-		isSelected := selectedCol == col.id
-		isSorted := showSort && sortCol == col.id
-
-		header := col.label
-
-		var sortIndicator string
-		if isSorted {
-			if sortAsc {
-				sortIndicator = "↑"
-			} else {
-				sortIndicator = "↓"
-			}
-		}
-
-		padWidth := widths[i] - len(header)
-		if isSorted {
-			padWidth -= 1
-		}
-		if padWidth < 0 {
-			padWidth = 0
-		}
-		var paddedHeader string
-		if col.rightAlign {
-			paddedHeader = strings.Repeat(" ", padWidth) + header
-		} else {
-			paddedHeader = header + strings.Repeat(" ", padWidth)
-		}
-
-		if isSelected {
-			b.WriteString(selectedStyle.Render(paddedHeader))
-		} else {
-			b.WriteString(headerStyle.Render(paddedHeader))
-		}
-
-		if isSorted {
-			b.WriteString(sortStyle.Render(sortIndicator))
-		}
-	}
-
-	return b.String()
-}
-
-// calculateColumnWidths distributes available width among columns.
-// Fixed columns (flex=0) get their minWidth, remaining space goes to flex columns.
-func calculateColumnWidths(columns []columnDef, availableWidth int) []int {
-	widths := make([]int, len(columns))
-
-	// Account for spaces between columns and selection marker
-	separators := len(columns) - 1
-	selectionMarker := 2 // "  " prefix for all rows
-	availableWidth -= separators + selectionMarker
-
-	// First pass: assign minimum widths and calculate total flex
-	totalMinWidth := 0
-	totalFlex := 0
-	for i, col := range columns {
-		widths[i] = col.minWidth
-		totalMinWidth += col.minWidth
-		totalFlex += col.flex
-	}
-
-	// Distribute remaining space to flex columns
-	extraSpace := availableWidth - totalMinWidth
-	if extraSpace > 0 && totalFlex > 0 {
-		for i, col := range columns {
-			if col.flex > 0 {
-				extra := (extraSpace * col.flex) / totalFlex
-				widths[i] += extra
-			}
-		}
-	}
-
-	return widths
-}
 
 // contentWidth returns the available width for table content.
 // Accounts for frame border and padding.
@@ -147,6 +36,16 @@ func (m Model) View() string {
 	view := m.CurrentView()
 	if view == nil {
 		return LoadingStyle().Render("Initializing...")
+	}
+
+	// Help modal overlay
+	if m.helpMode {
+		return m.renderHelpModal()
+	}
+
+	// Settings modal overlay
+	if m.settingsMode {
+		return m.renderSettingsModal()
 	}
 
 	var b strings.Builder
@@ -177,9 +76,9 @@ func (m Model) View() string {
 		}
 	}
 
-	// Set content, sync scroll position, and render viewport
+	// Set content and render viewport
+	// Note: scroll position is synced in Update() via syncViewportScroll()
 	m.viewport.SetContent(content)
-	m.ensureCursorVisible()
 
 	// Calculate connection count for title
 	connCount := 0
@@ -357,6 +256,22 @@ func (m Model) filteredApps() []model.Application {
 	return result
 }
 
+// filteredConnections returns connections matching the current filter for a specific process.
+func (m Model) filteredConnections(conns []model.Connection) []model.Connection {
+	filter := m.currentFilter()
+	if filter == "" {
+		return conns
+	}
+
+	var result []model.Connection
+	for _, conn := range conns {
+		if matchesConnection(filter, conn) {
+			result = append(result, conn)
+		}
+	}
+	return result
+}
+
 // filteredAllConnections returns connections matching the current filter.
 func (m Model) filteredAllConnections() []connectionWithProcess {
 	if m.snapshot == nil {
@@ -367,15 +282,8 @@ func (m Model) filteredAllConnections() []connectionWithProcess {
 	var result []connectionWithProcess
 	for _, app := range m.snapshot.Applications {
 		for _, conn := range app.Connections {
-			if filter == "" {
-				result = append(result, connectionWithProcess{
-					Connection:  conn,
-					ProcessName: app.Name,
-				})
-				continue
-			}
-			ports := extractPortsFromAddrs(conn.LocalAddr, conn.RemoteAddr)
-			if matchesFilter(filter, app.Name, app.PIDs, ports) {
+			// No filter or matches filter - include connection
+			if filter == "" || matchesFilter(filter, app.Name, app.PIDs, extractPortsFromAddrs(conn.LocalAddr, conn.RemoteAddr)) {
 				result = append(result, connectionWithProcess{
 					Connection:  conn,
 					ProcessName: app.Name,
@@ -384,19 +292,6 @@ func (m Model) filteredAllConnections() []connectionWithProcess {
 		}
 	}
 	return result
-}
-
-// processListColumns returns the column definitions for the process list.
-func processListColumns() []columnDef {
-	return []columnDef{
-		{label: "PID", id: SortPID, minWidth: 6, flex: 0, rightAlign: true},
-		{label: "Process", id: SortProcess, minWidth: 15, flex: 3, rightAlign: false},
-		{label: "Conns", id: SortConns, minWidth: 6, flex: 0, rightAlign: true},
-		{label: "ESTAB", id: SortEstablished, minWidth: 6, flex: 0, rightAlign: true},
-		{label: "LISTEN", id: SortListen, minWidth: 7, flex: 0, rightAlign: true},
-		{label: "TX", id: SortTX, minWidth: 8, flex: 1, rightAlign: true},
-		{label: "RX", id: SortRX, minWidth: 8, flex: 1, rightAlign: true},
-	}
 }
 
 // renderProcessList renders the process list table (Level 0).
@@ -435,9 +330,12 @@ func (m Model) renderProcessList() string {
 	// Sort applications
 	apps = m.sortProcessList(apps)
 
+	// Use view.Cursor directly for selection (view already defined above)
+	cursorIdx := view.Cursor
+
 	// Render each process row
 	for i, app := range apps {
-		isSelected := i == view.Cursor
+		isSelected := i == cursorIdx
 
 		// Aggregate TX/RX stats for all PIDs of this app
 		txStr, rxStr := m.getAggregatedNetIO(app.PIDs)
@@ -475,16 +373,6 @@ func (m Model) renderProcessListHeader(widths []int) string {
 	return renderTableHeader(columns, widths, view.SelectedColumn, view.SortColumn, view.SortAscending, true)
 }
 
-// connectionsColumns returns the column definitions for the connections list.
-func connectionsColumns() []columnDef {
-	return []columnDef{
-		{label: "Proto", id: SortProtocol, minWidth: 6, flex: 0},
-		{label: "Local", id: SortLocal, minWidth: 20, flex: 2},
-		{label: "Remote", id: SortRemote, minWidth: 20, flex: 2},
-		{label: "State", id: SortState, minWidth: 11, flex: 1},
-	}
-}
-
 // renderConnectionsList renders connections for a specific process (Level 1).
 func (m Model) renderConnectionsList() string {
 	if m.snapshot == nil {
@@ -509,6 +397,18 @@ func (m Model) renderConnectionsList() string {
 		return EmptyStyle().Render("Process not found")
 	}
 
+	// Get filtered connections
+	conns := m.filteredConnections(selectedApp.Connections)
+
+	// Handle empty results
+	if len(conns) == 0 {
+		filter := m.currentFilter()
+		if filter != "" {
+			return EmptyStyle().Render(fmt.Sprintf("No matches for '%s'", filter))
+		}
+		return EmptyStyle().Render("No connections found")
+	}
+
 	var b strings.Builder
 
 	// === HEADER SECTION ===
@@ -516,12 +416,18 @@ func (m Model) renderConnectionsList() string {
 	b.WriteString(HeaderStyle().Render(selectedApp.Name))
 	b.WriteString("\n")
 
+	// Executable path (if available)
+	if selectedApp.Exe != "" {
+		b.WriteString(StatusStyle().Render(selectedApp.Exe))
+		b.WriteString("\n")
+	}
+
 	// PIDs and TX/RX stats
 	txStr, rxStr := m.getAggregatedNetIO(selectedApp.PIDs)
 	statsLine := fmt.Sprintf("PIDs: %s  |  TX: %s  RX: %s  |  %d connections",
 		formatPIDList(selectedApp.PIDs),
 		txStr, rxStr,
-		len(selectedApp.Connections))
+		len(conns))
 	b.WriteString(StatusStyle().Render(statsLine))
 	b.WriteString("\n\n")
 
@@ -535,41 +441,29 @@ func (m Model) renderConnectionsList() string {
 	b.WriteString("\n")
 
 	// Sort connections
-	conns := m.sortConnectionsForView(selectedApp.Connections)
+	conns = m.sortConnectionsForView(conns)
+
+	// Use view.Cursor directly for selection (view already defined above)
+	cursorIdx := view.Cursor
 
 	// Render each connection (no PID column - redundant at this level)
 	for i, conn := range conns {
-		isSelected := i == view.Cursor
+		isSelected := i == cursorIdx
 
+		remoteAddr := formatRemoteAddr(conn.RemoteAddr, m.dnsCache, m.serviceNames)
+		localAddr := formatAddr(conn.LocalAddr, m.serviceNames)
 		row := fmt.Sprintf("%-*s %-*s %-*s %-*s",
 			widths[0], conn.Protocol,
-			widths[1], truncateAddr(conn.LocalAddr, widths[1]),
-			widths[2], truncateAddr(conn.RemoteAddr, widths[2]),
+			widths[1], truncateAddr(localAddr, widths[1]),
+			widths[2], truncateAddr(remoteAddr, widths[2]),
 			widths[3], conn.State,
 		)
 
-		b.WriteString(renderRow(row, isSelected))
+		change := m.GetChange(conn)
+		b.WriteString(renderRowWithHighlight(row, isSelected, change))
 	}
 
 	return b.String()
-}
-
-// formatPIDList formats a slice of PIDs for display.
-func formatPIDList(pids []int32) string {
-	if len(pids) == 0 {
-		return "-"
-	}
-	if len(pids) == 1 {
-		return fmt.Sprintf("%d", pids[0])
-	}
-	if len(pids) <= 3 {
-		strs := make([]string, len(pids))
-		for i, p := range pids {
-			strs[i] = fmt.Sprintf("%d", p)
-		}
-		return strings.Join(strs, ", ")
-	}
-	return fmt.Sprintf("%d, %d +%d more", pids[0], pids[1], len(pids)-2)
 }
 
 // renderConnectionsHeader renders the header for connections table.
@@ -586,18 +480,6 @@ func (m Model) renderConnectionsHeader(widths []int) string {
 type connectionWithProcess struct {
 	model.Connection
 	ProcessName string
-}
-
-// allConnectionsColumns returns the column definitions for the all-connections list.
-func allConnectionsColumns() []columnDef {
-	return []columnDef{
-		{label: "PID", id: SortPID, minWidth: 6, flex: 0, rightAlign: true},
-		{label: "Process", id: SortProcess, minWidth: 12, flex: 2},
-		{label: "Proto", id: SortProtocol, minWidth: 6, flex: 0},
-		{label: "Local", id: SortLocal, minWidth: 18, flex: 2},
-		{label: "Remote", id: SortRemote, minWidth: 18, flex: 2},
-		{label: "State", id: SortState, minWidth: 11, flex: 1},
-	}
 }
 
 // renderAllConnections renders a flat list of all connections from all processes.
@@ -637,20 +519,26 @@ func (m Model) renderAllConnections() string {
 	// Sort connections
 	allConns = m.sortAllConnections(allConns)
 
+	// Use view.Cursor directly for selection (view already defined above)
+	cursorIdx := view.Cursor
+
 	// Render each connection
 	for i, conn := range allConns {
-		isSelected := i == view.Cursor
+		isSelected := i == cursorIdx
 
+		remoteAddr := formatRemoteAddr(conn.RemoteAddr, m.dnsCache, m.serviceNames)
+		localAddr := formatAddr(conn.LocalAddr, m.serviceNames)
 		row := fmt.Sprintf("%*d %-*s %-*s %-*s %-*s %-*s",
 			widths[0], conn.PID,
 			widths[1], truncateString(conn.ProcessName, widths[1]),
 			widths[2], conn.Protocol,
-			widths[3], truncateAddr(conn.LocalAddr, widths[3]),
-			widths[4], truncateAddr(conn.RemoteAddr, widths[4]),
+			widths[3], truncateAddr(localAddr, widths[3]),
+			widths[4], truncateAddr(remoteAddr, widths[4]),
 			widths[5], conn.State,
 		)
 
-		b.WriteString(renderRow(row, isSelected))
+		change := m.GetChange(conn.Connection)
+		b.WriteString(renderRowWithHighlight(row, isSelected, change))
 	}
 
 	return b.String()
@@ -664,240 +552,6 @@ func (m Model) renderAllConnectionsHeader(widths []int) string {
 	}
 	columns := allConnectionsColumns()
 	return renderTableHeader(columns, widths, view.SelectedColumn, view.SortColumn, view.SortAscending, true)
-}
-
-// sortAllConnections sorts connections with process names based on current view state.
-func (m Model) sortAllConnections(conns []connectionWithProcess) []connectionWithProcess {
-	view := m.CurrentView()
-	if view == nil {
-		return conns
-	}
-
-	sorted := make([]connectionWithProcess, len(conns))
-	copy(sorted, conns)
-
-	sort.Slice(sorted, func(i, j int) bool {
-		var less bool
-		switch view.SortColumn {
-		case SortPID:
-			less = sorted[i].PID < sorted[j].PID
-		case SortProcess:
-			less = sorted[i].ProcessName < sorted[j].ProcessName
-		case SortProtocol:
-			less = sorted[i].Protocol < sorted[j].Protocol
-		case SortLocal:
-			less = sorted[i].LocalAddr < sorted[j].LocalAddr
-		case SortRemote:
-			less = sorted[i].RemoteAddr < sorted[j].RemoteAddr
-		case SortState:
-			less = sorted[i].State < sorted[j].State
-		default:
-			less = sorted[i].PID < sorted[j].PID
-		}
-
-		if view.SortAscending {
-			return less
-		}
-		return !less
-	})
-
-	return sorted
-}
-
-// sortProcessList sorts applications based on current view state.
-func (m Model) sortProcessList(apps []model.Application) []model.Application {
-	view := m.CurrentView()
-	if view == nil {
-		return apps
-	}
-
-	sorted := make([]model.Application, len(apps))
-	copy(sorted, apps)
-
-	sort.Slice(sorted, func(i, j int) bool {
-		var less bool
-		switch view.SortColumn {
-		case SortPID:
-			// Sort by primary (first) PID
-			pidI := int32(0)
-			pidJ := int32(0)
-			if len(sorted[i].PIDs) > 0 {
-				pidI = sorted[i].PIDs[0]
-			}
-			if len(sorted[j].PIDs) > 0 {
-				pidJ = sorted[j].PIDs[0]
-			}
-			less = pidI < pidJ
-		case SortProcess:
-			less = sorted[i].Name < sorted[j].Name
-		case SortConns:
-			less = len(sorted[i].Connections) < len(sorted[j].Connections)
-		case SortEstablished:
-			less = sorted[i].EstablishedCount < sorted[j].EstablishedCount
-		case SortListen:
-			less = sorted[i].ListenCount < sorted[j].ListenCount
-		case SortTX:
-			// Sort by aggregated TX bytes
-			txI := m.getAggregatedTXBytes(sorted[i].PIDs)
-			txJ := m.getAggregatedTXBytes(sorted[j].PIDs)
-			less = txI < txJ
-		case SortRX:
-			// Sort by aggregated RX bytes
-			rxI := m.getAggregatedRXBytes(sorted[i].PIDs)
-			rxJ := m.getAggregatedRXBytes(sorted[j].PIDs)
-			less = rxI < rxJ
-		default:
-			less = sorted[i].Name < sorted[j].Name
-		}
-
-		if view.SortAscending {
-			return less
-		}
-		return !less
-	})
-
-	return sorted
-}
-
-// getAggregatedTXBytes returns the total TX bytes for all PIDs.
-func (m Model) getAggregatedTXBytes(pids []int32) uint64 {
-	var total uint64
-	for _, pid := range pids {
-		if stats, ok := m.netIOCache[pid]; ok {
-			total += stats.BytesSent
-		}
-	}
-	return total
-}
-
-// getAggregatedRXBytes returns the total RX bytes for all PIDs.
-func (m Model) getAggregatedRXBytes(pids []int32) uint64 {
-	var total uint64
-	for _, pid := range pids {
-		if stats, ok := m.netIOCache[pid]; ok {
-			total += stats.BytesRecv
-		}
-	}
-	return total
-}
-
-// sortConnectionsForView sorts connections based on current view state.
-func (m Model) sortConnectionsForView(conns []model.Connection) []model.Connection {
-	view := m.CurrentView()
-	if view == nil {
-		return conns
-	}
-
-	sorted := make([]model.Connection, len(conns))
-	copy(sorted, conns)
-
-	sort.Slice(sorted, func(i, j int) bool {
-		var less bool
-		switch view.SortColumn {
-		case SortPID:
-			less = sorted[i].PID < sorted[j].PID
-		case SortProtocol:
-			less = sorted[i].Protocol < sorted[j].Protocol
-		case SortLocal:
-			less = sorted[i].LocalAddr < sorted[j].LocalAddr
-		case SortRemote:
-			less = sorted[i].RemoteAddr < sorted[j].RemoteAddr
-		case SortState:
-			less = sorted[i].State < sorted[j].State
-		default:
-			less = sorted[i].LocalAddr < sorted[j].LocalAddr
-		}
-
-		if view.SortAscending {
-			return less
-		}
-		return !less
-	})
-
-	return sorted
-}
-
-func formatPIDs(pids []int32) string {
-	if len(pids) == 0 {
-		return ""
-	}
-
-	if len(pids) == 1 {
-		return fmt.Sprintf("PID: %d", pids[0])
-	}
-
-	// Multiple PIDs: show first few + count
-	if len(pids) <= 3 {
-		strs := make([]string, len(pids))
-		for i, p := range pids {
-			strs[i] = fmt.Sprintf("%d", p)
-		}
-		return fmt.Sprintf("PIDs: %s", strings.Join(strs, ", "))
-	}
-
-	return fmt.Sprintf("PIDs: %d, %d +%d more", pids[0], pids[1], len(pids)-2)
-}
-
-func truncateAddr(addr string, maxLen int) string {
-	if maxLen < 4 {
-		if len(addr) <= maxLen {
-			return addr
-		}
-		return addr[:maxLen] // Can't fit ellipsis, just truncate
-	}
-	if len(addr) <= maxLen {
-		return addr
-	}
-	return addr[:maxLen-3] + "..."
-}
-
-// truncateString truncates a string to maxLen with ellipsis if needed.
-func truncateString(s string, maxLen int) string {
-	if maxLen < 4 {
-		if len(s) <= maxLen {
-			return s
-		}
-		return s[:maxLen] // Can't fit ellipsis, just truncate
-	}
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen-3] + "..."
-}
-
-// formatBytes formats bytes into human-readable units.
-// Returns '--' for nil stats, otherwise formats as '1.2 MB', '256 KB', '89 B'.
-func formatBytes(bytes uint64) string {
-	const (
-		KB = 1024
-		MB = KB * 1024
-		GB = MB * 1024
-		TB = GB * 1024
-	)
-
-	switch {
-	case bytes >= TB:
-		return fmt.Sprintf("%.1f TB", float64(bytes)/float64(TB))
-	case bytes >= GB:
-		return fmt.Sprintf("%.1f GB", float64(bytes)/float64(GB))
-	case bytes >= MB:
-		return fmt.Sprintf("%.1f MB", float64(bytes)/float64(MB))
-	case bytes >= KB:
-		return fmt.Sprintf("%.1f KB", float64(bytes)/float64(KB))
-	default:
-		return fmt.Sprintf("%d B", bytes)
-	}
-}
-
-// formatBytesOrDash formats bytes or returns '--' if nil.
-func formatBytesOrDash(stats *model.NetIOStats, isSent bool) string {
-	if stats == nil {
-		return "--"
-	}
-	if isSent {
-		return formatBytes(stats.BytesSent)
-	}
-	return formatBytes(stats.BytesRecv)
 }
 
 // getAggregatedNetIO returns formatted TX and RX strings aggregated across all PIDs.
@@ -921,9 +575,13 @@ func (m Model) getAggregatedNetIO(pids []int32) (tx, rx string) {
 	return formatBytes(totalSent), formatBytes(totalRecv)
 }
 
-// ensureCursorVisible adjusts the viewport scroll position to keep the cursor visible.
-// Must be called after SetContent so the viewport knows its total height.
-func (m *Model) ensureCursorVisible() {
+// syncViewportScroll adjusts the viewport scroll position to keep the cursor visible.
+// MUST be called from Update() (not View()) to persist the scroll position.
+func (m *Model) syncViewportScroll() {
+	if !m.ready {
+		return
+	}
+
 	lineNumber := m.cursorLinePosition()
 
 	// Scroll up if cursor is above visible area
@@ -947,7 +605,148 @@ func (m Model) cursorLinePosition() int {
 		return 0
 	}
 
-	// Account for header row
-	const tableHeaderLines = 1
-	return view.Cursor + tableHeaderLines
+	// Different views have different header structures
+	var headerLines int
+	switch view.Level {
+	case LevelConnections:
+		// Process name (1) + [exe (1)] + stats line (1) + blank line (1) + table header (1)
+		headerLines = 4
+		// Add exe line if present
+		for _, app := range m.snapshot.Applications {
+			if app.Name == view.ProcessName && app.Exe != "" {
+				headerLines = 5
+				break
+			}
+		}
+	default:
+		// LevelProcessList and LevelAllConnections have just 1 table header line
+		headerLines = 1
+	}
+
+	return view.Cursor + headerLines
+}
+
+// centerModal renders a framed modal centered on screen.
+func (m Model) centerModal(content, title string, modalWidth int) string {
+	if m.width < modalWidth+4 {
+		modalWidth = m.width - 4
+	}
+
+	lines := strings.Split(content, "\n")
+	modalHeight := len(lines) + 4 // content + border + padding
+
+	framedModal := RenderFrameWithTitle(content, title, modalWidth, modalHeight)
+
+	leftPad := max((m.width-modalWidth)/2, 0)
+	topPad := max((m.height-modalHeight)/2, 0)
+
+	var b strings.Builder
+	for i := 0; i < topPad; i++ {
+		b.WriteString(DimmedStyle().Render(strings.Repeat(" ", m.width)))
+		b.WriteString("\n")
+	}
+	for _, line := range strings.Split(framedModal, "\n") {
+		b.WriteString(strings.Repeat(" ", leftPad))
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// renderHelpModal renders the help modal overlay with keyboard shortcuts.
+func (m Model) renderHelpModal() string {
+	keyStyle := FooterKeyStyle()
+	descStyle := FooterDescStyle()
+
+	formatKey := func(k Keybinding) string {
+		return keyStyle.Render(k.Key) + descStyle.Render(" "+k.Desc)
+	}
+
+	lines := []string{
+		// Navigation
+		HeaderStyle().Render("Navigation"),
+		formatKey(KeyUp) + ", " + formatKey(KeyUpAlt),
+		formatKey(KeyDown) + ", " + formatKey(KeyDownAlt),
+		formatKey(KeyEnter) + descStyle.Render(" Select/drill-down"),
+		formatKey(KeyEsc) + ", " + formatKey(KeyBack) + descStyle.Render(" Back/cancel"),
+		"",
+		// Views
+		HeaderStyle().Render("Views"),
+		formatKey(KeyToggleView),
+		formatKey(KeySortMode),
+		keyStyle.Render("←→") + descStyle.Render(" Select column (sort mode)"),
+		"",
+		// Search
+		HeaderStyle().Render("Search"),
+		formatKey(KeySearch),
+		"",
+		// Actions
+		HeaderStyle().Render("Actions"),
+		formatKey(KeyKillTerm),
+		formatKey(KeyKillForce),
+		formatKey(KeyRefreshUp) + ", " + keyStyle.Render("=") + descStyle.Render(" Faster refresh"),
+		formatKey(KeyRefreshDown) + ", " + keyStyle.Render("_") + descStyle.Render(" Slower refresh"),
+		"",
+		// Other
+		HeaderStyle().Render("Other"),
+		formatKey(KeySettings),
+		formatKey(KeyHelp),
+		formatKey(KeyQuit) + ", " + keyStyle.Render("ctrl+c") + descStyle.Render(" Quit"),
+	}
+
+	return m.centerModal(strings.Join(lines, "\n"), "Keyboard Shortcuts", 60)
+}
+
+// renderSettingsModal renders the settings modal overlay.
+func (m Model) renderSettingsModal() string {
+	var b strings.Builder
+
+	// Header
+	header := HeaderStyle().Width(m.width).Render("netmon - Settings")
+	b.WriteString(header)
+	b.WriteString("\n\n")
+
+	// Settings options
+	settings := []struct {
+		name    string
+		enabled bool
+		desc    string
+	}{
+		{"DNS Resolution", m.dnsEnabled, "Resolve IP addresses to hostnames"},
+		{"Service Names", m.serviceNames, "Show service names instead of port numbers"},
+	}
+
+	for i, s := range settings {
+		// Selection indicator
+		cursor := "  "
+		if i == m.settingsCursor {
+			cursor = "> "
+		}
+
+		// Toggle state
+		toggle := "[ ]"
+		if s.enabled {
+			toggle = "[x]"
+		}
+
+		// Row
+		row := fmt.Sprintf("%s%s %s - %s", cursor, toggle, s.name, s.desc)
+		if i == m.settingsCursor {
+			b.WriteString(SelectedConnStyle().Render(row))
+		} else {
+			b.WriteString(ConnStyle().Render(row))
+		}
+		b.WriteString("\n")
+	}
+
+	// Footer with keybindings
+	b.WriteString("\n")
+	keyStyle := FooterKeyStyle()
+	descStyle := FooterDescStyle()
+	footer := keyStyle.Render("↑↓") + descStyle.Render(" Navigate  ") +
+		keyStyle.Render("Space") + descStyle.Render(" Toggle  ") +
+		keyStyle.Render("Esc") + descStyle.Render(" Close")
+	b.WriteString(FooterStyle().Width(m.width).Render(footer))
+
+	return b.String()
 }

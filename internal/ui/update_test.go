@@ -28,6 +28,7 @@ func createTestModel() Model {
 		refreshInterval: DefaultRefreshInterval,
 		snapshot:        snapshot,
 		netIOCache:      make(map[int32]*model.NetIOStats),
+		changes:         make(map[ConnectionKey]Change),
 		stack: []ViewState{{
 			Level:          LevelProcessList,
 			ProcessName:    "",
@@ -265,6 +266,27 @@ func TestUpdate_KeyMsg_Enter_DrillsIn(t *testing.T) {
 	}
 	if newModel.CurrentView().ProcessName != "App1" {
 		t.Errorf("ProcessName = %s, want App1", newModel.CurrentView().ProcessName)
+	}
+}
+
+// TestUpdate_KeyMsg_Enter_RespectsSortOrder is a regression test for the bug where
+// Enter key would select the wrong process when the list was sorted differently
+// than the underlying slice order. The cursor indexes into the *sorted* view,
+// so the Enter handler must also apply sorting before indexing.
+func TestUpdate_KeyMsg_Enter_RespectsSortOrder(t *testing.T) {
+	m := createTestModel()
+	// Sort by PID descending: App3 (300), App2 (200), App1 (100)
+	m.CurrentView().SortColumn = SortPID
+	m.CurrentView().SortAscending = false
+	m.CurrentView().Cursor = 0 // First row in sorted view = App3
+
+	msg := tea.KeyMsg{Type: tea.KeyEnter}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	// Should have drilled into App3 (first in sorted view), not App1 (first in slice)
+	if newModel.CurrentView().ProcessName != "App3" {
+		t.Errorf("ProcessName = %s, want App3 (respects sort order)", newModel.CurrentView().ProcessName)
 	}
 }
 
@@ -879,9 +901,113 @@ func TestExtractSinglePort(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := extractSinglePort(tt.addr)
+		got := model.ExtractPort(tt.addr)
 		if got != tt.want {
-			t.Errorf("extractSinglePort(%q) = %d, want %d", tt.addr, got, tt.want)
+			t.Errorf("model.ExtractPort(%q) = %d, want %d", tt.addr, got, tt.want)
 		}
+	}
+}
+
+// TestUpdate_KeyMsg_Down_RespectsFilter verifies cursor stays within filtered bounds.
+// This is a regression test for the bug where cursor could exceed filtered item count.
+func TestUpdate_KeyMsg_Down_RespectsFilter(t *testing.T) {
+	m := createTestModel()
+	// Filter to show only App1 (1 item out of 3)
+	m.activeFilter = "App1"
+	m.CurrentView().Cursor = 0
+
+	// Try to move down - should stay at 0 since only 1 filtered item
+	msg := tea.KeyMsg{Type: tea.KeyDown}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.CurrentView().Cursor != 0 {
+		t.Errorf("cursor = %d, want 0 (filter shows only 1 item)", newModel.CurrentView().Cursor)
+	}
+}
+
+// TestUpdate_DataMsg_ClampsCursorWithFilter verifies cursor is clamped on data refresh.
+func TestUpdate_DataMsg_ClampsCursorWithFilter(t *testing.T) {
+	m := createTestModel()
+	// Set filter and cursor beyond filtered bounds
+	m.activeFilter = "App1"
+	m.CurrentView().Cursor = 5 // Invalid: only 1 item matches filter
+
+	// Simulate data refresh
+	msg := DataMsg{
+		Snapshot: createTestSnapshot(),
+		Err:      nil,
+	}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	// Cursor should be clamped to valid range
+	if newModel.CurrentView().Cursor >= 1 {
+		t.Errorf("cursor = %d, want < 1 (filter shows only 1 item)", newModel.CurrentView().Cursor)
+	}
+}
+
+// TestSelectionIDStability verifies selection follows item when sort order changes.
+// Regression test for ID-based selection.
+func TestSelectionIDStability(t *testing.T) {
+	m := createTestModel()
+	// Select App2 (middle item when sorted A-Z)
+	m.CurrentView().Cursor = 1
+	m.CurrentView().SelectedID = model.SelectionIDFromProcess("App2")
+
+	// Verify initial selection resolves correctly
+	idx := m.resolveSelectionIndex()
+	if idx != 1 {
+		t.Errorf("initial idx = %d, want 1", idx)
+	}
+
+	// Simulate snapshot update with same data (order unchanged)
+	msg := DataMsg{
+		Snapshot: createTestSnapshot(),
+		Err:      nil,
+	}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	// Selection should still point to App2
+	view := newModel.CurrentView()
+	if view.SelectedID.ProcessName != "App2" {
+		t.Errorf("SelectedID.ProcessName = %q, want App2", view.SelectedID.ProcessName)
+	}
+
+	// Cursor should still resolve to App2's position
+	resolvedIdx := newModel.resolveSelectionIndex()
+	apps := newModel.sortProcessList(newModel.filteredApps())
+	if resolvedIdx >= len(apps) {
+		t.Fatalf("resolvedIdx %d out of bounds (len=%d)", resolvedIdx, len(apps))
+	}
+	if apps[resolvedIdx].Name != "App2" {
+		t.Errorf("apps[%d].Name = %q, want App2", resolvedIdx, apps[resolvedIdx].Name)
+	}
+}
+
+// TestSelectionIDGoneItem verifies cursor clamps when selected item disappears.
+func TestSelectionIDGoneItem(t *testing.T) {
+	m := createTestModel()
+	// Select App3 (last item)
+	m.CurrentView().Cursor = 2
+	m.CurrentView().SelectedID = model.SelectionIDFromProcess("App3")
+
+	// New snapshot without App3
+	newSnapshot := &model.NetworkSnapshot{
+		Applications: []model.Application{
+			{Name: "App1", PIDs: []int32{100}, Connections: []model.Connection{{Protocol: "TCP"}}},
+			{Name: "App2", PIDs: []int32{200}, Connections: []model.Connection{{Protocol: "UDP"}}},
+		},
+	}
+
+	msg := DataMsg{Snapshot: newSnapshot, Err: nil}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	// Cursor should be clamped (App3 gone)
+	view := newModel.CurrentView()
+	if view.Cursor >= 2 {
+		t.Errorf("cursor = %d, want < 2 (only 2 items remain)", view.Cursor)
 	}
 }

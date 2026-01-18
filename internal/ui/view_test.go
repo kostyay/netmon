@@ -30,53 +30,6 @@ func initViewportWithStack(m *Model) {
 	}
 }
 
-func TestFormatPIDs_Empty(t *testing.T) {
-	got := formatPIDs([]int32{})
-	if got != "" {
-		t.Errorf("formatPIDs([]) = %q, want empty string", got)
-	}
-}
-
-func TestFormatPIDs_SinglePID(t *testing.T) {
-	got := formatPIDs([]int32{1234})
-	want := "PID: 1234"
-	if got != want {
-		t.Errorf("formatPIDs([1234]) = %q, want %q", got, want)
-	}
-}
-
-func TestFormatPIDs_TwoPIDs(t *testing.T) {
-	got := formatPIDs([]int32{1234, 5678})
-	want := "PIDs: 1234, 5678"
-	if got != want {
-		t.Errorf("formatPIDs([1234, 5678]) = %q, want %q", got, want)
-	}
-}
-
-func TestFormatPIDs_ThreePIDs(t *testing.T) {
-	got := formatPIDs([]int32{100, 200, 300})
-	want := "PIDs: 100, 200, 300"
-	if got != want {
-		t.Errorf("formatPIDs([100, 200, 300]) = %q, want %q", got, want)
-	}
-}
-
-func TestFormatPIDs_ManyPIDs(t *testing.T) {
-	got := formatPIDs([]int32{100, 200, 300, 400, 500})
-	want := "PIDs: 100, 200 +3 more"
-	if got != want {
-		t.Errorf("formatPIDs([100, 200, 300, 400, 500]) = %q, want %q", got, want)
-	}
-}
-
-func TestFormatPIDs_FourPIDs(t *testing.T) {
-	got := formatPIDs([]int32{1, 2, 3, 4})
-	want := "PIDs: 1, 2 +2 more"
-	if got != want {
-		t.Errorf("formatPIDs([1, 2, 3, 4]) = %q, want %q", got, want)
-	}
-}
-
 func TestTruncateAddr_Short(t *testing.T) {
 	got := truncateAddr("127.0.0.1:80", 21)
 	want := "127.0.0.1:80"
@@ -335,6 +288,109 @@ func TestRenderConnectionsList_ProcessNotFound(t *testing.T) {
 
 	if !strings.Contains(result, "Process not found") {
 		t.Error("renderConnectionsList() should show 'Process not found' for missing process")
+	}
+}
+
+func TestRenderConnectionsList_FilteredByLocalAddr(t *testing.T) {
+	m := Model{
+		snapshot: &model.NetworkSnapshot{
+			Applications: []model.Application{
+				{
+					Name: "TestApp",
+					PIDs: []int32{100},
+					Connections: []model.Connection{
+						{Protocol: model.ProtocolTCP, LocalAddr: "127.0.0.1:80", RemoteAddr: "10.0.0.1:443", State: model.StateEstablished, PID: 100},
+						{Protocol: model.ProtocolTCP, LocalAddr: "192.168.1.1:8080", RemoteAddr: "10.0.0.2:443", State: model.StateEstablished, PID: 100},
+					},
+				},
+			},
+		},
+		stack: []ViewState{{
+			Level:       LevelConnections,
+			ProcessName: "TestApp",
+			Cursor:      0,
+			SortColumn:  SortLocal,
+		}},
+		activeFilter: "192.168",
+	}
+
+	result := m.renderConnectionsList()
+
+	// Should contain the filtered connection
+	if !strings.Contains(result, "192.168.1.1:8080") {
+		t.Error("renderConnectionsList() should contain filtered local addr")
+	}
+	// Should NOT contain the excluded connection
+	if strings.Contains(result, "127.0.0.1:80") {
+		t.Error("renderConnectionsList() should NOT contain excluded local addr")
+	}
+	// Should show 1 connection count
+	if !strings.Contains(result, "1 connections") {
+		t.Error("renderConnectionsList() should show filtered count")
+	}
+}
+
+func TestRenderConnectionsList_FilteredByRemoteAddr(t *testing.T) {
+	m := Model{
+		snapshot: &model.NetworkSnapshot{
+			Applications: []model.Application{
+				{
+					Name: "TestApp",
+					PIDs: []int32{100},
+					Connections: []model.Connection{
+						{Protocol: model.ProtocolTCP, LocalAddr: "127.0.0.1:80", RemoteAddr: "10.0.0.1:443", State: model.StateEstablished, PID: 100},
+						{Protocol: model.ProtocolTCP, LocalAddr: "127.0.0.1:81", RemoteAddr: "8.8.8.8:53", State: model.StateEstablished, PID: 100},
+					},
+				},
+			},
+		},
+		stack: []ViewState{{
+			Level:       LevelConnections,
+			ProcessName: "TestApp",
+			Cursor:      0,
+			SortColumn:  SortLocal,
+		}},
+		activeFilter: "8.8.8.8",
+	}
+
+	result := m.renderConnectionsList()
+
+	// Should contain the filtered connection
+	if !strings.Contains(result, "8.8.8.8:53") {
+		t.Error("renderConnectionsList() should contain filtered remote addr")
+	}
+	// Should NOT contain the excluded connection
+	if strings.Contains(result, "10.0.0.1:443") {
+		t.Error("renderConnectionsList() should NOT contain excluded remote addr")
+	}
+}
+
+func TestRenderConnectionsList_FilterNoMatches(t *testing.T) {
+	m := Model{
+		snapshot: &model.NetworkSnapshot{
+			Applications: []model.Application{
+				{
+					Name: "TestApp",
+					PIDs: []int32{100},
+					Connections: []model.Connection{
+						{Protocol: model.ProtocolTCP, LocalAddr: "127.0.0.1:80", RemoteAddr: "10.0.0.1:443", State: model.StateEstablished, PID: 100},
+					},
+				},
+			},
+		},
+		stack: []ViewState{{
+			Level:       LevelConnections,
+			ProcessName: "TestApp",
+			Cursor:      0,
+			SortColumn:  SortLocal,
+		}},
+		activeFilter: "nomatchxyz",
+	}
+
+	result := m.renderConnectionsList()
+
+	if !strings.Contains(result, "No matches for 'nomatchxyz'") {
+		t.Error("renderConnectionsList() should show 'No matches' when filter excludes all")
 	}
 }
 

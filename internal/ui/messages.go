@@ -20,3 +20,10 @@ type NetIOMsg struct {
 	Stats map[int32]*model.NetIOStats // Keyed by PID
 	Err   error
 }
+
+// DNSResolvedMsg contains a DNS resolution result.
+type DNSResolvedMsg struct {
+	IP       string
+	Hostname string
+	Err      error
+}

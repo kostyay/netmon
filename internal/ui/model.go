@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/kostyay/netmon/internal/collector"
+	"github.com/kostyay/netmon/internal/config"
 	"github.com/kostyay/netmon/internal/model"
 )
 
@@ -93,22 +94,27 @@ func (s SortColumn) String() string {
 
 // ViewState captures the navigation state at a given level.
 type ViewState struct {
-	Level          ViewLevel  // Which view level (process list, connections)
-	ProcessName    string     // Selected process name (empty at Level 0)
-	Cursor         int        // Current cursor position in the list
-	SortColumn     SortColumn // Current sort column
-	SortAscending  bool       // Sort direction
-	SelectedColumn SortColumn // Currently selected column for navigation
-	SortMode       bool       // Whether sort mode is active
+	Level          ViewLevel         // Which view level (process list, connections)
+	ProcessName    string            // Selected process name (empty at Level 0)
+	Cursor         int               // Current cursor position in the list
+	SelectedID     model.SelectionID // Stable selection identifier
+	SortColumn     SortColumn        // Current sort column
+	SortAscending  bool              // Sort direction
+	SelectedColumn SortColumn        // Currently selected column for navigation
+	SortMode       bool              // Whether sort mode is active
 }
 
 // Model is the Bubble Tea model for the network monitor.
 type Model struct {
 	// Data
 	snapshot       *model.NetworkSnapshot
+	prevSnapshot   *model.NetworkSnapshot // Previous snapshot for diff
 	collector      collector.Collector
 	netIOCollector collector.NetIOCollector
 	netIOCache     map[int32]*model.NetIOStats // Network I/O stats keyed by PID
+
+	// Change highlighting
+	changes map[ConnectionKey]Change // Recently changed connections
 
 	// Navigation stack (replaces viewMode, expandedApps, cursor, tableCursor)
 	stack []ViewState
@@ -141,6 +147,20 @@ type Model struct {
 	killTarget   *killTargetInfo // target process/connection to kill
 	killResult   string          // result message from kill operation
 	killResultAt time.Time       // when killResult was set (for auto-dismiss)
+
+	// DNS resolution
+	dnsCache   map[string]string // IP -> hostname cache
+	dnsEnabled bool              // whether DNS resolution is enabled
+
+	// Service names
+	serviceNames bool // show service names instead of port numbers
+
+	// Settings modal
+	settingsMode   bool // true when settings modal is visible
+	settingsCursor int  // which setting is selected (0-based)
+
+	// Help modal
+	helpMode bool // true when help modal is visible
 }
 
 // killTargetInfo holds info about the process to be killed.
@@ -158,6 +178,10 @@ func NewModel() Model {
 		netIOCollector:  collector.NewNetIOCollector(),
 		refreshInterval: DefaultRefreshInterval,
 		netIOCache:      make(map[int32]*model.NetIOStats),
+		changes:         make(map[ConnectionKey]Change),
+		dnsCache:        make(map[string]string),
+		dnsEnabled:      config.CurrentSettings.DNSEnabled,
+		serviceNames:    config.CurrentSettings.ServiceNames,
 		stack: []ViewState{{
 			Level:          LevelProcessList,
 			ProcessName:    "",
@@ -167,6 +191,12 @@ func NewModel() Model {
 			SelectedColumn: SortProcess,
 		}},
 	}
+}
+
+// WithFilter returns a copy of the model with an initial filter applied.
+func (m Model) WithFilter(filter string) Model {
+	m.activeFilter = filter
+	return m
 }
 
 // CurrentView returns the current view state (top of stack).

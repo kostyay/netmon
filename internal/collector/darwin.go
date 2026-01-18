@@ -14,14 +14,20 @@ import (
 	"github.com/shirou/gopsutil/v3/process"
 )
 
+// processInfo holds cached process name and executable path.
+type processInfo struct {
+	name string
+	exe  string
+}
+
 type darwinCollector struct {
-	processCache map[int32]string
+	processCache map[int32]processInfo
 	cacheMu      sync.RWMutex
 }
 
 func newPlatformCollector() Collector {
 	return &darwinCollector{
-		processCache: make(map[int32]string),
+		processCache: make(map[int32]processInfo),
 	}
 }
 
@@ -29,7 +35,7 @@ func (c *darwinCollector) Collect(ctx context.Context) (*model.NetworkSnapshot, 
 	// Clear process cache at the start of each cycle to prevent stale entries
 	// when PIDs are reused by different processes
 	c.cacheMu.Lock()
-	c.processCache = make(map[int32]string)
+	c.processCache = make(map[int32]processInfo)
 	c.cacheMu.Unlock()
 
 	// Get all network connections (TCP and UDP)
@@ -53,20 +59,21 @@ func (c *darwinCollector) Collect(ctx context.Context) (*model.NetworkSnapshot, 
 			continue
 		}
 
-		// Get process name (with caching)
-		name := c.getProcessName(ctx, conn.Pid)
-		if name == "" {
+		// Get process info (with caching)
+		info := c.getProcessInfo(ctx, conn.Pid)
+		if info.name == "" {
 			skippedCount++
 			continue // Skip if we can't get process name
 		}
 
 		// Create or get application entry
-		app, exists := appMap[name]
+		app, exists := appMap[info.name]
 		if !exists {
 			app = &model.Application{
-				Name: name,
+				Name: info.name,
+				Exe:  info.exe,
 			}
-			appMap[name] = app
+			appMap[info.name] = app
 		}
 
 		// Add PID if not already present
@@ -113,29 +120,34 @@ func (c *darwinCollector) Collect(ctx context.Context) (*model.NetworkSnapshot, 
 	return snapshot, nil
 }
 
-func (c *darwinCollector) getProcessName(ctx context.Context, pid int32) string {
+func (c *darwinCollector) getProcessInfo(ctx context.Context, pid int32) processInfo {
 	c.cacheMu.RLock()
-	if name, ok := c.processCache[pid]; ok {
+	if info, ok := c.processCache[pid]; ok {
 		c.cacheMu.RUnlock()
-		return name
+		return info
 	}
 	c.cacheMu.RUnlock()
 
 	proc, err := process.NewProcessWithContext(ctx, pid)
 	if err != nil {
-		return ""
+		return processInfo{}
 	}
 
 	name, err := proc.NameWithContext(ctx)
 	if err != nil {
-		return ""
+		return processInfo{}
 	}
 
+	// Get executable path (may fail for some processes)
+	exe, _ := proc.ExeWithContext(ctx)
+
+	info := processInfo{name: name, exe: exe}
+
 	c.cacheMu.Lock()
-	c.processCache[pid] = name
+	c.processCache[pid] = info
 	c.cacheMu.Unlock()
 
-	return name
+	return info
 }
 
 func (c *darwinCollector) getProtocol(connType uint32) model.Protocol {

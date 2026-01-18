@@ -452,7 +452,6 @@ func TestViewState_Defaults(t *testing.T) {
 	}
 }
 
-
 // Tests for matchesFilter function
 
 func TestMatchesFilter_EmptyFilter(t *testing.T) {
@@ -512,7 +511,7 @@ func TestMatchesFilter_Port(t *testing.T) {
 		want   bool
 	}{
 		{"8080", []int{8080}, true},
-		{"80", []int{8080}, true},    // partial match
+		{"80", []int{8080}, true},     // partial match
 		{"443", []int{80, 443}, true}, // matches second
 		{"9999", []int{8080}, false},
 	}
@@ -538,6 +537,90 @@ func TestMatchesFilter_Combined(t *testing.T) {
 		t.Error("Should match on port")
 	}
 	if matchesFilter("nomatch", "Firefox", []int32{5678}, []int{8080}) {
+		t.Error("Should not match when nothing matches")
+	}
+}
+
+func TestMatchesConnection_EmptyFilter(t *testing.T) {
+	conn := model.Connection{
+		LocalAddr:  "127.0.0.1:8080",
+		RemoteAddr: "10.0.0.1:443",
+		Protocol:   "tcp",
+		State:      "ESTABLISHED",
+	}
+	if !matchesConnection("", conn) {
+		t.Error("Empty filter should match all connections")
+	}
+}
+
+func TestMatchesConnection_LocalAddr(t *testing.T) {
+	conn := model.Connection{
+		LocalAddr:  "127.0.0.1:8080",
+		RemoteAddr: "10.0.0.1:443",
+		Protocol:   "tcp",
+		State:      "ESTABLISHED",
+	}
+	if !matchesConnection("127.0.0.1", conn) {
+		t.Error("Should match local address")
+	}
+	if !matchesConnection("8080", conn) {
+		t.Error("Should match local port")
+	}
+}
+
+func TestMatchesConnection_RemoteAddr(t *testing.T) {
+	conn := model.Connection{
+		LocalAddr:  "127.0.0.1:8080",
+		RemoteAddr: "10.0.0.1:443",
+		Protocol:   "tcp",
+		State:      "ESTABLISHED",
+	}
+	if !matchesConnection("10.0.0.1", conn) {
+		t.Error("Should match remote address")
+	}
+	if !matchesConnection("443", conn) {
+		t.Error("Should match remote port")
+	}
+}
+
+func TestMatchesConnection_Protocol(t *testing.T) {
+	conn := model.Connection{
+		LocalAddr:  "127.0.0.1:8080",
+		RemoteAddr: "10.0.0.1:443",
+		Protocol:   "tcp",
+		State:      "ESTABLISHED",
+	}
+	if !matchesConnection("tcp", conn) {
+		t.Error("Should match protocol")
+	}
+	if !matchesConnection("TCP", conn) {
+		t.Error("Should match protocol case-insensitively")
+	}
+}
+
+func TestMatchesConnection_State(t *testing.T) {
+	conn := model.Connection{
+		LocalAddr:  "127.0.0.1:8080",
+		RemoteAddr: "10.0.0.1:443",
+		Protocol:   "tcp",
+		State:      "ESTABLISHED",
+	}
+	if !matchesConnection("established", conn) {
+		t.Error("Should match state case-insensitively")
+	}
+	if !matchesConnection("ESTAB", conn) {
+		t.Error("Should match partial state")
+	}
+}
+
+func TestMatchesConnection_NoMatch(t *testing.T) {
+	conn := model.Connection{
+		LocalAddr:  "127.0.0.1:8080",
+		RemoteAddr: "10.0.0.1:443",
+		Protocol:   "tcp",
+		State:      "ESTABLISHED",
+	}
+	if matchesConnection("nomatch", conn) {
 		t.Error("Should not match when nothing matches")
 	}
 }
