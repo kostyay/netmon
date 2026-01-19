@@ -25,6 +25,8 @@ var (
 	KeyUpAlt    = Keybinding{Key: "k", Desc: "Move up"}
 	KeyDown     = Keybinding{Key: "down", Desc: "Move down"}
 	KeyDownAlt  = Keybinding{Key: "j", Desc: "Move down"}
+	KeyPageUp   = Keybinding{Key: "pgup", Desc: "Page up"}
+	KeyPageDown = Keybinding{Key: "pgdown", Desc: "Page down"}
 	KeyLeft     = Keybinding{Key: "left", Desc: "Move left (sort mode)"}
 	KeyLeftAlt  = Keybinding{Key: "h", Desc: "Move left (sort mode)"}
 	KeyRight    = Keybinding{Key: "right", Desc: "Move right (sort mode)"}

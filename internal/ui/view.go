@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/kostyay/netmon/internal/config"
 	"github.com/kostyay/netmon/internal/model"
 )
 
@@ -15,11 +17,104 @@ const (
 	frameHeight  = 2 // top and bottom border
 )
 
+// frozenHeaderHeight returns the number of lines for the frozen table header.
+// This varies by view level.
+func (m Model) frozenHeaderHeight() int {
+	view := m.CurrentView()
+	if view == nil {
+		return 0
+	}
+	switch view.Level {
+	case LevelConnections:
+		// Process name (1) + [exe (1)] + stats line (1) + blank line (1) + table header (1)
+		lines := 4
+		if m.snapshot != nil {
+			for _, app := range m.snapshot.Applications {
+				if app.Name == view.ProcessName && app.Exe != "" {
+					lines = 5
+					break
+				}
+			}
+		}
+		return lines
+	default:
+		// ProcessList and AllConnections: just 1 table header line
+		return 1
+	}
+}
+
 // contentWidth returns the available width for table content.
 // Accounts for frame border and padding.
 func (m Model) contentWidth() int {
 	// Frame has 2 chars border + 2 chars padding = 4 total
 	return m.width - 4
+}
+
+// renderFrozenHeader returns the frozen header content for the current view.
+// This is rendered outside the viewport so it stays visible when scrolling.
+func (m Model) renderFrozenHeader() string {
+	if m.snapshot == nil {
+		return ""
+	}
+
+	view := m.CurrentView()
+	if view == nil {
+		return ""
+	}
+
+	var b strings.Builder
+
+	switch view.Level {
+	case LevelProcessList:
+		columns := processListColumns()
+		widths := calculateColumnWidths(columns, m.contentWidth())
+		b.WriteString(m.renderProcessListHeader(widths))
+
+	case LevelConnections:
+		// Find the selected process
+		var selectedApp *model.Application
+		for i := range m.snapshot.Applications {
+			if m.snapshot.Applications[i].Name == view.ProcessName {
+				selectedApp = &m.snapshot.Applications[i]
+				break
+			}
+		}
+		if selectedApp == nil {
+			return ""
+		}
+
+		// Process name (bold)
+		b.WriteString(HeaderStyle().Render(selectedApp.Name))
+		b.WriteString("\n")
+
+		// Executable path (if available)
+		if selectedApp.Exe != "" {
+			b.WriteString(StatusStyle().Render(selectedApp.Exe))
+			b.WriteString("\n")
+		}
+
+		// PIDs and TX/RX stats
+		conns := m.filteredConnections(selectedApp.Connections)
+		txStr, rxStr := m.getAggregatedNetIO(selectedApp.PIDs)
+		statsLine := fmt.Sprintf("PIDs: %s  |  TX: %s  RX: %s  |  %d connections",
+			formatPIDList(selectedApp.PIDs),
+			txStr, rxStr,
+			len(conns))
+		b.WriteString(StatusStyle().Render(statsLine))
+		b.WriteString("\n")
+
+		// Table header
+		columns := connectionsColumns()
+		widths := calculateColumnWidths(columns, m.contentWidth())
+		b.WriteString(m.renderConnectionsHeader(widths))
+
+	case LevelAllConnections:
+		columns := allConnectionsColumns()
+		widths := calculateColumnWidths(columns, m.contentWidth())
+		b.WriteString(m.renderAllConnectionsHeader(widths))
+	}
+
+	return b.String()
 }
 
 // View renders the UI.
@@ -59,27 +154,7 @@ func (m Model) View() string {
 	b.WriteString(header)
 	b.WriteString("\n")
 
-	// === CONTENT (scrollable via viewport, wrapped in frame) ===
-	var content string
-	if m.snapshot == nil {
-		content = LoadingStyle().Render("Loading...")
-	} else if len(m.snapshot.Applications) == 0 {
-		content = EmptyStyle().Render("No network connections found")
-	} else {
-		switch view.Level {
-		case LevelProcessList:
-			content = m.renderProcessList()
-		case LevelConnections:
-			content = m.renderConnectionsList()
-		case LevelAllConnections:
-			content = m.renderAllConnections()
-		}
-	}
-
-	// Set content and render viewport
-	// Note: scroll position is synced in Update() via syncViewportScroll()
-	m.viewport.SetContent(content)
-
+	// === CONTENT (wrapped in frame with frozen header + scrollable viewport) ===
 	// Calculate connection count for title
 	connCount := 0
 	if m.snapshot != nil {
@@ -87,8 +162,8 @@ func (m Model) View() string {
 	}
 	frameTitle := fmt.Sprintf("connections: %d", connCount)
 
-	// Wrap viewport in a frame with centered title
-	framedContent := RenderFrameWithTitle(m.viewport.View(), frameTitle, m.width, m.viewport.Height+frameHeight)
+	// Render frame with frozen header outside viewport
+	framedContent := m.renderFrameWithFrozenHeader(frameTitle)
 	b.WriteString(framedContent)
 	b.WriteString("\n")
 
@@ -96,6 +171,80 @@ func (m Model) View() string {
 	b.WriteString(m.renderFooter())
 
 	return b.String()
+}
+
+// renderFrameWithFrozenHeader renders the frame with frozen header above scrollable viewport.
+func (m Model) renderFrameWithFrozenHeader(title string) string {
+	borderColor := lipgloss.Color(config.CurrentTheme.Styles.Table.HeaderFgColor)
+	titleColor := lipgloss.Color(config.CurrentTheme.Styles.Header.TitleFg)
+
+	// Border characters
+	topLeft := "╭"
+	topRight := "╮"
+	bottomLeft := "╰"
+	bottomRight := "╯"
+	horizontal := "─"
+	vertical := "│"
+
+	borderStyle := lipgloss.NewStyle().Foreground(borderColor)
+	titleStyle := lipgloss.NewStyle().Foreground(titleColor).Bold(true)
+
+	// Inner width (content area without borders)
+	innerWidth := m.width - 2
+
+	// Build top border with centered title
+	titleWithPadding := " " + title + " "
+	titleLen := len(titleWithPadding)
+	remainingWidth := innerWidth - titleLen
+	if remainingWidth < 0 {
+		remainingWidth = 0
+		titleWithPadding = titleWithPadding[:innerWidth]
+	}
+	leftPad := remainingWidth / 2
+	rightPad := remainingWidth - leftPad
+
+	topBorder := borderStyle.Render(topLeft)
+	topBorder += borderStyle.Render(strings.Repeat(horizontal, leftPad))
+	topBorder += titleStyle.Render(titleWithPadding)
+	topBorder += borderStyle.Render(strings.Repeat(horizontal, rightPad))
+	topBorder += borderStyle.Render(topRight)
+
+	// Build bottom border
+	bottomBorder := borderStyle.Render(bottomLeft)
+	bottomBorder += borderStyle.Render(strings.Repeat(horizontal, innerWidth))
+	bottomBorder += borderStyle.Render(bottomRight)
+
+	var result strings.Builder
+	result.WriteString(topBorder)
+	result.WriteString("\n")
+
+	// Render frozen header lines (outside viewport, won't scroll)
+	frozenHeader := m.renderFrozenHeader()
+	if frozenHeader != "" {
+		for _, line := range strings.Split(frozenHeader, "\n") {
+			result.WriteString(borderStyle.Render(vertical))
+			result.WriteString(" ") // left padding
+			result.WriteString(padRight(line, innerWidth-2))
+			result.WriteString(" ") // right padding
+			result.WriteString(borderStyle.Render(vertical))
+			result.WriteString("\n")
+		}
+	}
+
+	// Render viewport content (scrollable data rows)
+	viewportContent := m.viewport.View()
+	for _, line := range strings.Split(viewportContent, "\n") {
+		result.WriteString(borderStyle.Render(vertical))
+		result.WriteString(" ") // left padding
+		result.WriteString(padRight(line, innerWidth-2))
+		result.WriteString(" ") // right padding
+		result.WriteString(borderStyle.Render(vertical))
+		result.WriteString("\n")
+	}
+
+	result.WriteString(bottomBorder)
+
+	return result.String()
 }
 
 // renderBreadcrumbsText returns the breadcrumbs text without styling.
@@ -126,8 +275,14 @@ func (m Model) renderFooter() string {
 	// Row 1: Kill mode, result message, search input, or breadcrumbs
 	if m.killMode && m.killTarget != nil {
 		// Show kill confirmation prompt
-		prompt := fmt.Sprintf("Kill PID %d (%s) with %s? [y/n]",
-			m.killTarget.PID, m.killTarget.ProcessName, m.killTarget.Signal)
+		var prompt string
+		if len(m.killTarget.PIDs) > 1 {
+			prompt = fmt.Sprintf("Kill %d PIDs of %s with %s? [y/n]",
+				len(m.killTarget.PIDs), m.killTarget.ProcessName, m.killTarget.Signal)
+		} else {
+			prompt = fmt.Sprintf("Kill PID %d (%s) with %s? [y/n]",
+				m.killTarget.PID, m.killTarget.ProcessName, m.killTarget.Signal)
+		}
 		b.WriteString(ErrorStyle().Width(m.width).Render(prompt))
 	} else if m.killResult != "" && time.Since(m.killResultAt) < 2*time.Second {
 		// Show kill result message (auto-dismiss after 2s)
@@ -196,31 +351,28 @@ func (m Model) renderKeybindingsText() string {
 	switch view.Level {
 	case LevelProcessList:
 		parts = []string{
-			keyStyle.Render("↑↓") + descStyle.Render(" Navigate"),
 			keyStyle.Render("Enter") + descStyle.Render(" Drill-in"),
 			keyStyle.Render("/") + descStyle.Render(" Search"),
-			keyStyle.Render("s") + descStyle.Render(" Sort"),
 			keyStyle.Render("x/X") + descStyle.Render(" Kill"),
 			keyStyle.Render("v") + descStyle.Render(" All"),
+			keyStyle.Render("?") + descStyle.Render(" Help"),
 			keyStyle.Render("q") + descStyle.Render(" Quit"),
 		}
 	case LevelConnections:
 		parts = []string{
-			keyStyle.Render("↑↓") + descStyle.Render(" Navigate"),
 			keyStyle.Render("/") + descStyle.Render(" Search"),
-			keyStyle.Render("s") + descStyle.Render(" Sort"),
 			keyStyle.Render("x/X") + descStyle.Render(" Kill"),
 			keyStyle.Render("Esc") + descStyle.Render(" Back"),
 			keyStyle.Render("v") + descStyle.Render(" All"),
+			keyStyle.Render("?") + descStyle.Render(" Help"),
 			keyStyle.Render("q") + descStyle.Render(" Quit"),
 		}
 	case LevelAllConnections:
 		parts = []string{
-			keyStyle.Render("↑↓") + descStyle.Render(" Navigate"),
 			keyStyle.Render("/") + descStyle.Render(" Search"),
-			keyStyle.Render("s") + descStyle.Render(" Sort"),
 			keyStyle.Render("x/X") + descStyle.Render(" Kill"),
 			keyStyle.Render("v") + descStyle.Render(" Grouped"),
+			keyStyle.Render("?") + descStyle.Render(" Help"),
 			keyStyle.Render("q") + descStyle.Render(" Quit"),
 		}
 	}
@@ -237,6 +389,7 @@ func (m Model) currentFilter() string {
 }
 
 // filteredApps returns applications matching the current filter.
+// Matches if ANY connection in the app matches the filter.
 func (m Model) filteredApps() []model.Application {
 	if m.snapshot == nil {
 		return nil
@@ -247,10 +400,24 @@ func (m Model) filteredApps() []model.Application {
 	}
 
 	var result []model.Application
+	exactMatch := m.useExactPortMatch()
 	for _, app := range m.snapshot.Applications {
-		ports := extractPorts(app.Connections)
-		if matchesFilter(filter, app.Name, app.PIDs, ports) {
+		// Check if process-level fields match
+		if matchesFilter(filter, filterFields{ProcessName: app.Name, PIDs: app.PIDs}, exactMatch) {
 			result = append(result, app)
+			continue
+		}
+		// Check if any connection matches
+		for _, conn := range app.Connections {
+			if matchesFilter(filter, filterFields{
+				LocalAddr:  conn.LocalAddr,
+				RemoteAddr: conn.RemoteAddr,
+				Protocol:   string(conn.Protocol),
+				State:      string(conn.State),
+			}, exactMatch) {
+				result = append(result, app)
+				break
+			}
 		}
 	}
 	return result
@@ -264,8 +431,15 @@ func (m Model) filteredConnections(conns []model.Connection) []model.Connection 
 	}
 
 	var result []model.Connection
+	exactMatch := m.useExactPortMatch()
 	for _, conn := range conns {
-		if matchesConnection(filter, conn) {
+		if matchesFilter(filter, filterFields{
+			PIDs:       []int32{conn.PID},
+			LocalAddr:  conn.LocalAddr,
+			RemoteAddr: conn.RemoteAddr,
+			Protocol:   string(conn.Protocol),
+			State:      string(conn.State),
+		}, exactMatch) {
 			result = append(result, conn)
 		}
 	}
@@ -280,10 +454,18 @@ func (m Model) filteredAllConnections() []connectionWithProcess {
 	filter := m.currentFilter()
 
 	var result []connectionWithProcess
+	exactMatch := m.useExactPortMatch()
 	for _, app := range m.snapshot.Applications {
 		for _, conn := range app.Connections {
 			// No filter or matches filter - include connection
-			if filter == "" || matchesFilter(filter, app.Name, app.PIDs, extractPortsFromAddrs(conn.LocalAddr, conn.RemoteAddr)) {
+			if filter == "" || matchesFilter(filter, filterFields{
+				ProcessName: app.Name,
+				PIDs:        []int32{conn.PID},
+				LocalAddr:   conn.LocalAddr,
+				RemoteAddr:  conn.RemoteAddr,
+				Protocol:    string(conn.Protocol),
+				State:       string(conn.State),
+			}, exactMatch) {
 				result = append(result, connectionWithProcess{
 					Connection:  conn,
 					ProcessName: app.Name,
@@ -450,8 +632,9 @@ func (m Model) renderConnectionsList() string {
 	for i, conn := range conns {
 		isSelected := i == cursorIdx
 
-		remoteAddr := formatRemoteAddr(conn.RemoteAddr, m.dnsCache, m.serviceNames)
-		localAddr := formatAddr(conn.LocalAddr, m.serviceNames)
+		proto := string(conn.Protocol)
+		remoteAddr := formatRemoteAddr(conn.RemoteAddr, proto, m.dnsCache, m.serviceNames)
+		localAddr := formatAddr(conn.LocalAddr, proto, m.serviceNames)
 		row := fmt.Sprintf("%-*s %-*s %-*s %-*s",
 			widths[0], conn.Protocol,
 			widths[1], truncateAddr(localAddr, widths[1]),
@@ -526,8 +709,9 @@ func (m Model) renderAllConnections() string {
 	for i, conn := range allConns {
 		isSelected := i == cursorIdx
 
-		remoteAddr := formatRemoteAddr(conn.RemoteAddr, m.dnsCache, m.serviceNames)
-		localAddr := formatAddr(conn.LocalAddr, m.serviceNames)
+		proto := string(conn.Protocol)
+		remoteAddr := formatRemoteAddr(conn.RemoteAddr, proto, m.dnsCache, m.serviceNames)
+		localAddr := formatAddr(conn.LocalAddr, proto, m.serviceNames)
 		row := fmt.Sprintf("%*d %-*s %-*s %-*s %-*s %-*s",
 			widths[0], conn.PID,
 			widths[1], truncateString(conn.ProcessName, widths[1]),
@@ -554,6 +738,157 @@ func (m Model) renderAllConnectionsHeader(widths []int) string {
 	return renderTableHeader(columns, widths, view.SelectedColumn, view.SortColumn, view.SortAscending, true)
 }
 
+// renderProcessListData renders only the data rows for process list (no header).
+func (m Model) renderProcessListData() string {
+	if m.snapshot == nil {
+		return LoadingStyle().Render("Loading...")
+	}
+
+	view := m.CurrentView()
+	if view == nil {
+		return ""
+	}
+
+	apps := m.filteredApps()
+	if len(apps) == 0 {
+		filter := m.currentFilter()
+		if filter != "" {
+			return EmptyStyle().Render(fmt.Sprintf("No matches for '%s'", filter))
+		}
+		return EmptyStyle().Render("No processes found")
+	}
+
+	var b strings.Builder
+	columns := processListColumns()
+	widths := calculateColumnWidths(columns, m.contentWidth())
+	apps = m.sortProcessList(apps)
+	cursorIdx := view.Cursor
+
+	for i, app := range apps {
+		isSelected := i == cursorIdx
+		txStr, rxStr := m.getAggregatedNetIO(app.PIDs)
+		var primaryPID int32
+		if len(app.PIDs) > 0 {
+			primaryPID = app.PIDs[0]
+		}
+
+		row := fmt.Sprintf("%*d %-*s %*d %*d %*d %*s %*s",
+			widths[0], primaryPID,
+			widths[1], truncateString(app.Name, widths[1]),
+			widths[2], len(app.Connections),
+			widths[3], app.EstablishedCount,
+			widths[4], app.ListenCount,
+			widths[5], txStr,
+			widths[6], rxStr,
+		)
+		b.WriteString(renderRow(row, isSelected))
+	}
+
+	return b.String()
+}
+
+// renderConnectionsListData renders only the data rows for connections list (no header).
+func (m Model) renderConnectionsListData() string {
+	if m.snapshot == nil {
+		return LoadingStyle().Render("Loading...")
+	}
+
+	view := m.CurrentView()
+	if view == nil {
+		return ""
+	}
+
+	var selectedApp *model.Application
+	for i := range m.snapshot.Applications {
+		if m.snapshot.Applications[i].Name == view.ProcessName {
+			selectedApp = &m.snapshot.Applications[i]
+			break
+		}
+	}
+
+	if selectedApp == nil {
+		return EmptyStyle().Render("Process not found")
+	}
+
+	conns := m.filteredConnections(selectedApp.Connections)
+	if len(conns) == 0 {
+		filter := m.currentFilter()
+		if filter != "" {
+			return EmptyStyle().Render(fmt.Sprintf("No matches for '%s'", filter))
+		}
+		return EmptyStyle().Render("No connections found")
+	}
+
+	var b strings.Builder
+	columns := connectionsColumns()
+	widths := calculateColumnWidths(columns, m.contentWidth())
+	conns = m.sortConnectionsForView(conns)
+	cursorIdx := view.Cursor
+
+	for i, conn := range conns {
+		isSelected := i == cursorIdx
+		proto := string(conn.Protocol)
+		remoteAddr := formatRemoteAddr(conn.RemoteAddr, proto, m.dnsCache, m.serviceNames)
+		localAddr := formatAddr(conn.LocalAddr, proto, m.serviceNames)
+		row := fmt.Sprintf("%-*s %-*s %-*s %-*s",
+			widths[0], conn.Protocol,
+			widths[1], truncateAddr(localAddr, widths[1]),
+			widths[2], truncateAddr(remoteAddr, widths[2]),
+			widths[3], conn.State,
+		)
+		change := m.GetChange(conn)
+		b.WriteString(renderRowWithHighlight(row, isSelected, change))
+	}
+
+	return b.String()
+}
+
+// renderAllConnectionsData renders only the data rows for all connections (no header).
+func (m Model) renderAllConnectionsData() string {
+	if m.snapshot == nil {
+		return LoadingStyle().Render("Loading...")
+	}
+
+	view := m.CurrentView()
+	if view == nil {
+		return ""
+	}
+
+	allConns := m.filteredAllConnections()
+	if len(allConns) == 0 {
+		filter := m.currentFilter()
+		if filter != "" {
+			return EmptyStyle().Render(fmt.Sprintf("No matches for '%s'", filter))
+		}
+		return EmptyStyle().Render("No connections found")
+	}
+
+	var b strings.Builder
+	columns := allConnectionsColumns()
+	widths := calculateColumnWidths(columns, m.contentWidth())
+	allConns = m.sortAllConnections(allConns)
+	cursorIdx := view.Cursor
+
+	for i, conn := range allConns {
+		isSelected := i == cursorIdx
+		proto := string(conn.Protocol)
+		remoteAddr := formatRemoteAddr(conn.RemoteAddr, proto, m.dnsCache, m.serviceNames)
+		localAddr := formatAddr(conn.LocalAddr, proto, m.serviceNames)
+		row := fmt.Sprintf("%*d %-*s %-*s %-*s %-*s %-*s",
+			widths[0], conn.PID,
+			widths[1], truncateString(conn.ProcessName, widths[1]),
+			widths[2], conn.Protocol,
+			widths[3], truncateAddr(localAddr, widths[3]),
+			widths[4], truncateAddr(remoteAddr, widths[4]),
+			widths[5], conn.State,
+		)
+		change := m.GetChange(conn.Connection)
+		b.WriteString(renderRowWithHighlight(row, isSelected, change))
+	}
+
+	return b.String()
+}
+
 // getAggregatedNetIO returns formatted TX and RX strings aggregated across all PIDs.
 // Returns "--" for each if no stats are available.
 func (m Model) getAggregatedNetIO(pids []int32) (tx, rx string) {
@@ -573,6 +908,41 @@ func (m Model) getAggregatedNetIO(pids []int32) (tx, rx string) {
 	}
 
 	return formatBytes(totalSent), formatBytes(totalRecv)
+}
+
+// updateViewportContent renders the current view and sets viewport content.
+// MUST be called from Update() (not View()) so viewport knows content height for scrolling.
+// Uses data-only rendering since headers are rendered outside viewport (frozen).
+func (m *Model) updateViewportContent() {
+	if !m.ready {
+		return
+	}
+
+	view := m.CurrentView()
+	if view == nil {
+		m.viewportContent = ""
+		return
+	}
+
+	var content string
+	if m.snapshot == nil {
+		content = LoadingStyle().Render("Loading...")
+	} else if len(m.snapshot.Applications) == 0 {
+		content = EmptyStyle().Render("No network connections found")
+	} else {
+		// Use data-only methods (headers are rendered separately outside viewport)
+		switch view.Level {
+		case LevelProcessList:
+			content = m.renderProcessListData()
+		case LevelConnections:
+			content = m.renderConnectionsListData()
+		case LevelAllConnections:
+			content = m.renderAllConnectionsData()
+		}
+	}
+
+	m.viewportContent = content
+	m.viewport.SetContent(content)
 }
 
 // syncViewportScroll adjusts the viewport scroll position to keep the cursor visible.
@@ -599,31 +969,13 @@ func (m *Model) syncViewportScroll() {
 
 // cursorLinePosition calculates which line the currently selected item is on.
 // This is used to ensure the cursor stays visible when scrolling.
+// Since headers are now frozen outside the viewport, cursor position is just the index.
 func (m Model) cursorLinePosition() int {
 	view := m.CurrentView()
 	if view == nil || m.snapshot == nil {
 		return 0
 	}
-
-	// Different views have different header structures
-	var headerLines int
-	switch view.Level {
-	case LevelConnections:
-		// Process name (1) + [exe (1)] + stats line (1) + blank line (1) + table header (1)
-		headerLines = 4
-		// Add exe line if present
-		for _, app := range m.snapshot.Applications {
-			if app.Name == view.ProcessName && app.Exe != "" {
-				headerLines = 5
-				break
-			}
-		}
-	default:
-		// LevelProcessList and LevelAllConnections have just 1 table header line
-		headerLines = 1
-	}
-
-	return view.Cursor + headerLines
+	return view.Cursor
 }
 
 // centerModal renders a framed modal centered on screen.
@@ -667,6 +1019,7 @@ func (m Model) renderHelpModal() string {
 		HeaderStyle().Render("Navigation"),
 		formatKey(KeyUp) + ", " + formatKey(KeyUpAlt),
 		formatKey(KeyDown) + ", " + formatKey(KeyDownAlt),
+		formatKey(KeyPageUp) + ", " + formatKey(KeyPageDown),
 		formatKey(KeyEnter) + descStyle.Render(" Select/drill-down"),
 		formatKey(KeyEsc) + ", " + formatKey(KeyBack) + descStyle.Render(" Back/cancel"),
 		"",
@@ -714,6 +1067,7 @@ func (m Model) renderSettingsModal() string {
 	}{
 		{"DNS Resolution", m.dnsEnabled, "Resolve IP addresses to hostnames"},
 		{"Service Names", m.serviceNames, "Show service names instead of port numbers"},
+		{"Highlight Changes", m.highlightChanges, "Highlight added/removed connections"},
 	}
 
 	for i, s := range settings {

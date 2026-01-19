@@ -22,12 +22,28 @@ func (m Model) Init() tea.Cmd {
 	)
 }
 
-// Update handles messages and ensures viewport scroll is synced after any state change.
+// Update handles messages and ensures viewport content/scroll is synced after any state change.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	result, cmd := m.update(msg)
 	newModel := result.(Model)
+	newModel.recalcViewportHeight() // Adjust for frozen header (varies by view level)
+	newModel.updateViewportContent()
 	newModel.syncViewportScroll()
 	return newModel, cmd
+}
+
+// recalcViewportHeight recalculates viewport height based on current view's frozen header.
+// Must be called after view switches since frozen header height varies by view level.
+func (m *Model) recalcViewportHeight() {
+	if !m.ready || m.height == 0 {
+		return
+	}
+	frozenLines := m.frozenHeaderHeight()
+	viewportHeight := m.height - headerHeight - footerHeight - frameHeight - frozenLines
+	if viewportHeight < 1 {
+		viewportHeight = 1
+	}
+	m.viewport.Height = viewportHeight
 }
 
 // update handles messages (internal implementation).
@@ -37,8 +53,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
-		// Calculate viewport height: total - header - footer - frame borders
-		viewportHeight := msg.Height - headerHeight - footerHeight - frameHeight
+		// Calculate viewport height: total - header - footer - frame borders - frozen header
+		// Frozen header varies by view level (1 for ProcessList/AllConns, 4-5 for Connections)
+		frozenLines := m.frozenHeaderHeight()
+		viewportHeight := msg.Height - headerHeight - footerHeight - frameHeight - frozenLines
 		if viewportHeight < 1 {
 			viewportHeight = 1
 		}
@@ -96,7 +114,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if matchKey(key, KeyDown, KeyDownAlt) {
-				maxCursor := 1 // Number of settings - 1
+				maxCursor := 2 // Number of settings - 1
 				if m.settingsCursor < maxCursor {
 					m.settingsCursor++
 				}
@@ -112,6 +130,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case 1: // Service Names
 					m.serviceNames = !m.serviceNames
 					config.CurrentSettings.ServiceNames = m.serviceNames
+					_ = config.SaveSettings(config.CurrentSettings)
+				case 2: // Highlight Changes
+					m.highlightChanges = !m.highlightChanges
+					config.CurrentSettings.HighlightChanges = m.highlightChanges
 					_ = config.SaveSettings(config.CurrentSettings)
 				}
 				return m, nil
@@ -341,6 +363,41 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		if matchKey(key, KeyPageUp) {
+			view := m.CurrentView()
+			if view == nil {
+				return m, nil
+			}
+			pageSize := m.viewport.Height
+			if pageSize < 1 {
+				pageSize = 10
+			}
+			view.Cursor -= pageSize
+			if view.Cursor < 0 {
+				view.Cursor = 0
+			}
+			m.updateSelectedIDFromCursor()
+			return m, nil
+		}
+
+		if matchKey(key, KeyPageDown) {
+			view := m.CurrentView()
+			if view == nil || m.snapshot == nil {
+				return m, nil
+			}
+			pageSize := m.viewport.Height
+			if pageSize < 1 {
+				pageSize = 10
+			}
+			maxCursor := m.filteredCount()
+			view.Cursor += pageSize
+			if maxCursor > 0 && view.Cursor >= maxCursor {
+				view.Cursor = maxCursor - 1
+			}
+			m.updateSelectedIDFromCursor()
+			return m, nil
+		}
+
 		// Pass unhandled keys to viewport for page up/down, mouse scroll, etc.
 		if m.ready {
 			var cmd tea.Cmd
@@ -378,6 +435,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Store current as previous for next diff
 		m.prevSnapshot = m.snapshot
 		m.snapshot = msg.Snapshot
+
+		// Handle --pid: drill into target process on first snapshot
+		if m.targetPID != 0 {
+			drillIntoPID(&m, m.targetPID)
+			m.targetPID = 0 // Clear so we don't re-drill on every update
+		}
 
 		// Validate selection using ID-based resolution (handles item reordering)
 		m.validateSelection()
@@ -580,82 +643,41 @@ func (m *Model) filteredCount() int {
 	view := m.CurrentView()
 	switch view.Level {
 	case LevelProcessList:
-		count := 0
-		for _, app := range m.snapshot.Applications {
-			ports := extractPorts(app.Connections)
-			if matchesFilter(filter, app.Name, app.PIDs, ports) {
-				count++
-			}
-		}
-		return count
+		return len(m.filteredApps())
 	case LevelConnections:
-		// Find the process and count filtered connections
 		for _, app := range m.snapshot.Applications {
 			if app.Name == view.ProcessName {
-				count := 0
-				for _, conn := range app.Connections {
-					if matchesConnection(filter, conn) {
-						count++
-					}
-				}
-				return count
+				return len(m.filteredConnections(app.Connections))
 			}
 		}
 		return 0
 	case LevelAllConnections:
-		count := 0
-		for _, app := range m.snapshot.Applications {
-			for _, conn := range app.Connections {
-				ports := extractPortsFromAddrs(conn.LocalAddr, conn.RemoteAddr)
-				if matchesFilter(filter, app.Name, app.PIDs, ports) {
-					count++
-				}
-			}
-		}
-		return count
+		return len(m.filteredAllConnections())
 	default:
 		return m.maxCursorForLevel(view.Level)
 	}
 }
 
-// matchesConnection checks if a connection matches the filter string.
-// Matches against local/remote addresses, protocol, state, and ports.
-func matchesConnection(filter string, conn model.Connection) bool {
-	if filter == "" {
-		return true
+// drillIntoPID finds the application containing the given PID and pushes to its connections view.
+func drillIntoPID(m *Model, pid int32) {
+	if m.snapshot == nil {
+		return
 	}
-	filter = strings.ToLower(filter)
-
-	// Match local address
-	if strings.Contains(strings.ToLower(conn.LocalAddr), filter) {
-		return true
+	for _, app := range m.snapshot.Applications {
+		for _, p := range app.PIDs {
+			if p == pid {
+				m.PushView(ViewState{
+					Level:          LevelConnections,
+					ProcessName:    app.Name,
+					Cursor:         0,
+					SortColumn:     SortLocal,
+					SortAscending:  true,
+					SelectedColumn: SortLocal,
+				})
+				return
+			}
+		}
 	}
-
-	// Match remote address
-	if strings.Contains(strings.ToLower(conn.RemoteAddr), filter) {
-		return true
-	}
-
-	// Match protocol
-	if strings.Contains(strings.ToLower(string(conn.Protocol)), filter) {
-		return true
-	}
-
-	// Match state
-	if strings.Contains(strings.ToLower(string(conn.State)), filter) {
-		return true
-	}
-
-	return false
-}
-
-// extractPorts gets all ports from connections for filter matching.
-func extractPorts(conns []model.Connection) []int {
-	var ports []int
-	for _, c := range conns {
-		ports = append(ports, extractPortsFromAddrs(c.LocalAddr, c.RemoteAddr)...)
-	}
-	return ports
 }
 
 // extractPortsFromAddrs parses port numbers from address strings like "127.0.0.1:8080".

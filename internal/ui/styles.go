@@ -160,7 +160,6 @@ func RenderFrameWithTitle(content string, title string, width, height int) strin
 	if remainingWidth < 0 {
 		remainingWidth = 0
 		titleWithPadding = titleWithPadding[:innerWidth]
-		titleLen = innerWidth
 	}
 	leftPad := remainingWidth / 2
 	rightPad := remainingWidth - leftPad

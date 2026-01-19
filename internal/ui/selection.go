@@ -179,52 +179,6 @@ func (m *Model) validateSelection() {
 	m.updateSelectedIDFromCursor()
 }
 
-// cursorMatchesSelectedID checks if the item at cursor matches SelectedID.
-// Used to keep cursor stable when there are duplicate items with identical keys.
-func (m *Model) cursorMatchesSelectedID() bool {
-	view := m.CurrentView()
-	if view == nil || m.snapshot == nil || view.SelectedID.ProcessName == "" {
-		return false
-	}
-
-	switch view.Level {
-	case LevelProcessList:
-		apps := m.sortProcessList(m.filteredApps())
-		if view.Cursor >= 0 && view.Cursor < len(apps) {
-			return apps[view.Cursor].Name == view.SelectedID.ProcessName
-		}
-	case LevelConnections:
-		if view.SelectedID.ConnectionKey == nil {
-			return false
-		}
-		for i := range m.snapshot.Applications {
-			if m.snapshot.Applications[i].Name == view.ProcessName {
-				conns := m.sortConnectionsForView(m.filteredConnections(m.snapshot.Applications[i].Connections))
-				if view.Cursor >= 0 && view.Cursor < len(conns) {
-					conn := conns[view.Cursor]
-					processName := m.getProcessNameByPID(conn.PID)
-					return processName == view.SelectedID.ConnectionKey.ProcessName &&
-						conn.LocalAddr == view.SelectedID.ConnectionKey.LocalAddr &&
-						conn.RemoteAddr == view.SelectedID.ConnectionKey.RemoteAddr
-				}
-				break
-			}
-		}
-	case LevelAllConnections:
-		if view.SelectedID.ConnectionKey == nil {
-			return false
-		}
-		conns := m.sortAllConnections(m.filteredAllConnections())
-		if view.Cursor >= 0 && view.Cursor < len(conns) {
-			cwp := conns[view.Cursor]
-			return cwp.ProcessName == view.SelectedID.ConnectionKey.ProcessName &&
-				cwp.LocalAddr == view.SelectedID.ConnectionKey.LocalAddr &&
-				cwp.RemoteAddr == view.SelectedID.ConnectionKey.RemoteAddr
-		}
-	}
-	return false
-}
-
 // updateSelectedIDFromCursor sets SelectedID based on the current cursor position.
 func (m *Model) updateSelectedIDFromCursor() {
 	view := m.CurrentView()

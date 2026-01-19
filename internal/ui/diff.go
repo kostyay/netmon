@@ -39,7 +39,11 @@ func KeyFromConnection(c model.Connection) ConnectionKey {
 }
 
 // GetChange returns a pointer to the Change for a connection, or nil if no change.
+// Returns nil if highlight changes is disabled.
 func (m Model) GetChange(c model.Connection) *Change {
+	if !m.highlightChanges {
+		return nil
+	}
 	key := KeyFromConnection(c)
 	if change, ok := m.changes[key]; ok {
 		return &change

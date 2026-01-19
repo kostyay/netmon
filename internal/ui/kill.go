@@ -36,6 +36,7 @@ func (m Model) enterKillMode(signal string) (tea.Model, tea.Cmd) {
 		}
 		target = &killTargetInfo{
 			PID:         app.PIDs[0],
+			PIDs:        app.PIDs, // Store all PIDs for multi-process apps
 			ProcessName: app.Name,
 			Signal:      signal,
 		}
@@ -82,7 +83,7 @@ func (m Model) enterKillMode(signal string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// executeKill sends the signal to the target process.
+// executeKill sends the signal to the target process(es).
 func (m Model) executeKill() (tea.Model, tea.Cmd) {
 	if m.killTarget == nil {
 		m.killMode = false
@@ -94,14 +95,39 @@ func (m Model) executeKill() (tea.Model, tea.Cmd) {
 		sig = syscall.SIGTERM
 	}
 
-	err := syscall.Kill(int(m.killTarget.PID), sig)
+	// If we have multiple PIDs (from process list), kill all of them
+	pidsToKill := m.killTarget.PIDs
+	if len(pidsToKill) == 0 {
+		// Fall back to single PID for connection-level kills
+		pidsToKill = []int32{m.killTarget.PID}
+	}
+
+	var killed, failed int
+	var lastErr error
+	for _, pid := range pidsToKill {
+		if err := syscall.Kill(int(pid), sig); err != nil {
+			failed++
+			lastErr = err
+		} else {
+			killed++
+		}
+	}
+
 	m.killMode = false
 
-	if err != nil {
-		m.killResult = fmt.Sprintf("Failed to kill PID %d: %v", m.killTarget.PID, err)
+	// Format result message
+	if failed == 0 {
+		if len(pidsToKill) == 1 {
+			m.killResult = fmt.Sprintf("Killed PID %d (%s)", pidsToKill[0], m.killTarget.ProcessName)
+		} else {
+			m.killResult = fmt.Sprintf("Killed %d PIDs (%s)", killed, m.killTarget.ProcessName)
+		}
+	} else if killed == 0 {
+		m.killResult = fmt.Sprintf("Failed to kill %s: %v", m.killTarget.ProcessName, lastErr)
 	} else {
-		m.killResult = fmt.Sprintf("Killed PID %d (%s)", m.killTarget.PID, m.killTarget.ProcessName)
+		m.killResult = fmt.Sprintf("Killed %d PIDs, %d failed (%s)", killed, failed, m.killTarget.ProcessName)
 	}
+
 	m.killResultAt = time.Now()
 	m.killTarget = nil
 

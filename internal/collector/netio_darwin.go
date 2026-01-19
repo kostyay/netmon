@@ -48,10 +48,10 @@ func parseNettopOutput(output string) (map[int32]*model.NetIOStats, error) {
 	now := time.Now()
 
 	for scanner.Scan() {
-		line := scanner.Text()
+		line := strings.TrimSpace(scanner.Text())
 
-		// Skip header line
-		if strings.HasPrefix(line, "bytes_in") || strings.HasPrefix(line, " ") {
+		// Skip empty lines and header
+		if line == "" || strings.HasPrefix(line, "bytes_in") {
 			continue
 		}
 

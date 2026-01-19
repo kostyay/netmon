@@ -455,7 +455,7 @@ func TestViewState_Defaults(t *testing.T) {
 // Tests for matchesFilter function
 
 func TestMatchesFilter_EmptyFilter(t *testing.T) {
-	if !matchesFilter("", "Chrome", []int32{1234}, []int{8080}) {
+	if !matchesFilter("", filterFields{ProcessName: "Chrome", PIDs: []int32{1234}, LocalAddr: "127.0.0.1:8080"}, false) {
 		t.Error("Empty filter should match everything")
 	}
 }
@@ -474,9 +474,9 @@ func TestMatchesFilter_ProcessName(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := matchesFilter(tt.filter, tt.processName, nil, nil)
+		got := matchesFilter(tt.filter, filterFields{ProcessName: tt.processName}, false)
 		if got != tt.want {
-			t.Errorf("matchesFilter(%q, %q, nil, nil) = %v, want %v",
+			t.Errorf("matchesFilter(%q, processName=%q) = %v, want %v",
 				tt.filter, tt.processName, got, tt.want)
 		}
 	}
@@ -496,9 +496,9 @@ func TestMatchesFilter_PID(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := matchesFilter(tt.filter, "NoMatch", tt.pids, nil)
+		got := matchesFilter(tt.filter, filterFields{ProcessName: "NoMatch", PIDs: tt.pids}, false)
 		if got != tt.want {
-			t.Errorf("matchesFilter(%q, 'NoMatch', %v, nil) = %v, want %v",
+			t.Errorf("matchesFilter(%q, pids=%v) = %v, want %v",
 				tt.filter, tt.pids, got, tt.want)
 		}
 	}
@@ -506,121 +506,130 @@ func TestMatchesFilter_PID(t *testing.T) {
 
 func TestMatchesFilter_Port(t *testing.T) {
 	tests := []struct {
-		filter string
-		ports  []int
-		want   bool
+		filter    string
+		localAddr string
+		want      bool
 	}{
-		{"8080", []int{8080}, true},
-		{"80", []int{8080}, true},     // partial match
-		{"443", []int{80, 443}, true}, // matches second
-		{"9999", []int{8080}, false},
+		{"8080", "127.0.0.1:8080", true},
+		{"80", "127.0.0.1:8080", true},    // partial match with exactPortMatch=false
+		{"443", "127.0.0.1:443", true},    // exact
+		{"9999", "127.0.0.1:8080", false}, // no match
 	}
 
 	for _, tt := range tests {
-		got := matchesFilter(tt.filter, "NoMatch", nil, tt.ports)
+		got := matchesFilter(tt.filter, filterFields{ProcessName: "NoMatch", LocalAddr: tt.localAddr}, false)
 		if got != tt.want {
-			t.Errorf("matchesFilter(%q, 'NoMatch', nil, %v) = %v, want %v",
-				tt.filter, tt.ports, got, tt.want)
+			t.Errorf("matchesFilter(%q, localAddr=%q) = %v, want %v",
+				tt.filter, tt.localAddr, got, tt.want)
+		}
+	}
+}
+
+func TestMatchesFilter_Port_ExactMatch(t *testing.T) {
+	tests := []struct {
+		filter    string
+		localAddr string
+		want      bool
+	}{
+		{"8080", "127.0.0.1:8080", true},
+		{"80", "127.0.0.1:8080", false},   // no partial match with exactPortMatch=true
+		{"443", "127.0.0.1:443", true},    // exact match on 443
+		{"9999", "127.0.0.1:8080", false}, // no match
+	}
+
+	for _, tt := range tests {
+		got := matchesFilter(tt.filter, filterFields{ProcessName: "NoMatch", LocalAddr: tt.localAddr}, true)
+		if got != tt.want {
+			t.Errorf("matchesFilter(%q, localAddr=%q, exact=true) = %v, want %v",
+				tt.filter, tt.localAddr, got, tt.want)
 		}
 	}
 }
 
 func TestMatchesFilter_Combined(t *testing.T) {
 	// Should match if ANY of the criteria match
-	if !matchesFilter("chrome", "Chrome", []int32{1234}, []int{8080}) {
+	if !matchesFilter("chrome", filterFields{ProcessName: "Chrome", PIDs: []int32{1234}, LocalAddr: "127.0.0.1:8080"}, false) {
 		t.Error("Should match on process name")
 	}
-	if !matchesFilter("1234", "Firefox", []int32{1234}, []int{8080}) {
+	if !matchesFilter("1234", filterFields{ProcessName: "Firefox", PIDs: []int32{1234}, LocalAddr: "127.0.0.1:8080"}, false) {
 		t.Error("Should match on PID")
 	}
-	if !matchesFilter("8080", "Firefox", []int32{5678}, []int{8080}) {
+	if !matchesFilter("8080", filterFields{ProcessName: "Firefox", PIDs: []int32{5678}, LocalAddr: "127.0.0.1:8080"}, false) {
 		t.Error("Should match on port")
 	}
-	if matchesFilter("nomatch", "Firefox", []int32{5678}, []int{8080}) {
+	if matchesFilter("nomatch", filterFields{ProcessName: "Firefox", PIDs: []int32{5678}, LocalAddr: "127.0.0.1:8080"}, false) {
 		t.Error("Should not match when nothing matches")
 	}
 }
 
-func TestMatchesConnection_EmptyFilter(t *testing.T) {
-	conn := model.Connection{
+func TestMatchesFilter_LocalAddr(t *testing.T) {
+	fields := filterFields{
 		LocalAddr:  "127.0.0.1:8080",
 		RemoteAddr: "10.0.0.1:443",
 		Protocol:   "tcp",
 		State:      "ESTABLISHED",
 	}
-	if !matchesConnection("", conn) {
-		t.Error("Empty filter should match all connections")
-	}
-}
-
-func TestMatchesConnection_LocalAddr(t *testing.T) {
-	conn := model.Connection{
-		LocalAddr:  "127.0.0.1:8080",
-		RemoteAddr: "10.0.0.1:443",
-		Protocol:   "tcp",
-		State:      "ESTABLISHED",
-	}
-	if !matchesConnection("127.0.0.1", conn) {
+	if !matchesFilter("127.0.0.1", fields, false) {
 		t.Error("Should match local address")
 	}
-	if !matchesConnection("8080", conn) {
+	if !matchesFilter("8080", fields, false) {
 		t.Error("Should match local port")
 	}
 }
 
-func TestMatchesConnection_RemoteAddr(t *testing.T) {
-	conn := model.Connection{
+func TestMatchesFilter_RemoteAddr(t *testing.T) {
+	fields := filterFields{
 		LocalAddr:  "127.0.0.1:8080",
 		RemoteAddr: "10.0.0.1:443",
 		Protocol:   "tcp",
 		State:      "ESTABLISHED",
 	}
-	if !matchesConnection("10.0.0.1", conn) {
+	if !matchesFilter("10.0.0.1", fields, false) {
 		t.Error("Should match remote address")
 	}
-	if !matchesConnection("443", conn) {
+	if !matchesFilter("443", fields, false) {
 		t.Error("Should match remote port")
 	}
 }
 
-func TestMatchesConnection_Protocol(t *testing.T) {
-	conn := model.Connection{
+func TestMatchesFilter_Protocol(t *testing.T) {
+	fields := filterFields{
 		LocalAddr:  "127.0.0.1:8080",
 		RemoteAddr: "10.0.0.1:443",
 		Protocol:   "tcp",
 		State:      "ESTABLISHED",
 	}
-	if !matchesConnection("tcp", conn) {
+	if !matchesFilter("tcp", fields, false) {
 		t.Error("Should match protocol")
 	}
-	if !matchesConnection("TCP", conn) {
+	if !matchesFilter("TCP", fields, false) {
 		t.Error("Should match protocol case-insensitively")
 	}
 }
 
-func TestMatchesConnection_State(t *testing.T) {
-	conn := model.Connection{
+func TestMatchesFilter_State(t *testing.T) {
+	fields := filterFields{
 		LocalAddr:  "127.0.0.1:8080",
 		RemoteAddr: "10.0.0.1:443",
 		Protocol:   "tcp",
 		State:      "ESTABLISHED",
 	}
-	if !matchesConnection("established", conn) {
+	if !matchesFilter("established", fields, false) {
 		t.Error("Should match state case-insensitively")
 	}
-	if !matchesConnection("ESTAB", conn) {
+	if !matchesFilter("ESTAB", fields, false) {
 		t.Error("Should match partial state")
 	}
 }
 
-func TestMatchesConnection_NoMatch(t *testing.T) {
-	conn := model.Connection{
+func TestMatchesFilter_NoMatch(t *testing.T) {
+	fields := filterFields{
 		LocalAddr:  "127.0.0.1:8080",
 		RemoteAddr: "10.0.0.1:443",
 		Protocol:   "tcp",
 		State:      "ESTABLISHED",
 	}
-	if matchesConnection("nomatch", conn) {
+	if matchesFilter("nomatch", fields, false) {
 		t.Error("Should not match when nothing matches")
 	}
 }

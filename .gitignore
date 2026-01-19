@@ -2,3 +2,4 @@ bin/
 .idea/
 /netmon
 coverage.out
+.ktickets

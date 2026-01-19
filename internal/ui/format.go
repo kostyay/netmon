@@ -76,8 +76,9 @@ func formatBytesOrDash(stats *model.NetIOStats, isSent bool) string {
 }
 
 // formatAddr formats an address with optional DNS resolution and service name substitution.
+// protocol should be "tcp" or "udp" for correct service name lookup.
 // Pass nil for dnsCache to skip hostname resolution.
-func formatAddr(addr string, serviceNames bool, dnsCache ...map[string]string) string {
+func formatAddr(addr string, protocol string, serviceNames bool, dnsCache ...map[string]string) string {
 	if addr == "" || addr == "*" {
 		return addr
 	}
@@ -92,7 +93,7 @@ func formatAddr(addr string, serviceNames bool, dnsCache ...map[string]string) s
 	// Replace port with service name if enabled
 	if serviceNames {
 		if portNum, err := strconv.Atoi(port); err == nil {
-			if name := services.LookupTCP(portNum); name != "" {
+			if name := services.Lookup(portNum, strings.ToLower(protocol)); name != "" {
 				port = name
 			}
 		}
@@ -109,6 +110,6 @@ func formatAddr(addr string, serviceNames bool, dnsCache ...map[string]string) s
 }
 
 // formatRemoteAddr formats a remote address with DNS resolution and service names.
-func formatRemoteAddr(addr string, dnsCache map[string]string, serviceNames bool) string {
-	return formatAddr(addr, serviceNames, dnsCache)
+func formatRemoteAddr(addr string, protocol string, dnsCache map[string]string, serviceNames bool) string {
+	return formatAddr(addr, protocol, serviceNames, dnsCache)
 }
