@@ -23,6 +23,9 @@ func NewNetIOCollector() NetIOCollector {
 }
 
 // Collect gathers network I/O stats for all processes using /proc/[pid]/net/dev.
+// Note: /proc/[pid]/net/dev shows network namespace statistics, not per-process stats.
+// To avoid counting the same namespace traffic multiple times, we track which namespaces
+// we've already seen and only attribute stats to one process per namespace.
 func (c *netIOCollector) Collect(ctx context.Context) (map[int32]*model.NetIOStats, error) {
 	stats := make(map[int32]*model.NetIOStats)
 	now := time.Now()
@@ -32,10 +35,27 @@ func (c *netIOCollector) Collect(ctx context.Context) (map[int32]*model.NetIOSta
 		return stats, nil
 	}
 
+	// Track network namespaces we've already counted to avoid duplication.
+	// /proc/[pid]/net/dev shows per-namespace stats, not per-process stats,
+	// so all processes in the same namespace would show identical values.
+	seenNamespaces := make(map[string]bool)
+
 	for _, p := range procs {
 		if ctx.Err() != nil {
 			break
 		}
+
+		// Get the network namespace for this process
+		nsID := getNetworkNamespace(p.Pid)
+		if nsID == "" {
+			continue // Can't determine namespace, skip
+		}
+
+		// Skip if we've already counted this namespace
+		if seenNamespaces[nsID] {
+			continue
+		}
+		seenNamespaces[nsID] = true
 
 		bytesRecv, bytesSent := readProcNetDev(p.Pid)
 		if bytesRecv > 0 || bytesSent > 0 {
@@ -50,10 +70,22 @@ func (c *netIOCollector) Collect(ctx context.Context) (map[int32]*model.NetIOSta
 	return stats, nil
 }
 
+// getNetworkNamespace returns the network namespace identifier for a process.
+// Returns the inode number of the network namespace (e.g., "4026531833").
+func getNetworkNamespace(pid int32) string {
+	path := "/proc/" + strconv.Itoa(int(pid)) + "/ns/net"
+	link, err := os.Readlink(path)
+	if err != nil {
+		return ""
+	}
+	// link format is "net:[4026531833]", extract the inode
+	return link
+}
+
 // readProcNetDev reads network stats from /proc/[pid]/net/dev.
 func readProcNetDev(pid int32) (uint64, uint64) {
 	path := "/proc/" + strconv.Itoa(int(pid)) + "/net/dev"
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- path is constructed from integer PID, no traversal risk
 	if err != nil {
 		return 0, 0
 	}
