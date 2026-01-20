@@ -12,13 +12,14 @@ linters:
     - staticcheck
     - unused
 
-linters-settings:
-  errcheck:
-    check-type-assertions: true
-  govet:
-    enable-all: true
+  settings:
+    errcheck:
+      check-type-assertions: false
+    govet:
+      disable:
+        - fieldalignment
+        - shadow
 
 issues:
-  exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0

@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build linux
 
 package collector
 
@@ -20,53 +20,45 @@ type processInfo struct {
 	exe  string
 }
 
-type darwinCollector struct {
+type linuxCollector struct {
 	processCache map[int32]processInfo
 	cacheMu      sync.RWMutex
 }
 
 func newPlatformCollector() Collector {
-	return &darwinCollector{
+	return &linuxCollector{
 		processCache: make(map[int32]processInfo),
 	}
 }
 
-func (c *darwinCollector) Collect(ctx context.Context) (*model.NetworkSnapshot, error) {
-	// Clear process cache at the start of each cycle to prevent stale entries
-	// when PIDs are reused by different processes
+func (c *linuxCollector) Collect(ctx context.Context) (*model.NetworkSnapshot, error) {
 	c.cacheMu.Lock()
 	c.processCache = make(map[int32]processInfo)
 	c.cacheMu.Unlock()
 
-	// Get all network connections (TCP and UDP)
 	connections, err := net.ConnectionsWithContext(ctx, "all")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connections: %w", err)
 	}
 
-	// Group connections by process name
 	appMap := make(map[string]*model.Application)
 	skippedCount := 0
 
 	for _, conn := range connections {
-		// Check for context cancellation
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 
-		// Skip connections without PID (kernel/system)
 		if conn.Pid == 0 {
 			continue
 		}
 
-		// Get process info (with caching)
 		info := c.getProcessInfo(ctx, conn.Pid)
 		if info.name == "" {
 			skippedCount++
-			continue // Skip if we can't get process name
+			continue
 		}
 
-		// Create or get application entry
 		app, exists := appMap[info.name]
 		if !exists {
 			app = &model.Application{
@@ -76,12 +68,10 @@ func (c *darwinCollector) Collect(ctx context.Context) (*model.NetworkSnapshot, 
 			appMap[info.name] = app
 		}
 
-		// Add PID if not already present
 		if !containsPID(app.PIDs, conn.Pid) {
 			app.PIDs = append(app.PIDs, conn.Pid)
 		}
 
-		// Convert connection
 		mc := model.Connection{
 			PID:        conn.Pid,
 			Protocol:   c.getProtocol(conn.Type),
@@ -92,13 +82,11 @@ func (c *darwinCollector) Collect(ctx context.Context) (*model.NetworkSnapshot, 
 		app.Connections = append(app.Connections, mc)
 	}
 
-	// Convert map to slice, calculate state counts, and sort PIDs
 	apps := make([]model.Application, 0, len(appMap))
 	for _, app := range appMap {
 		sort.Slice(app.PIDs, func(i, j int) bool {
 			return app.PIDs[i] < app.PIDs[j]
 		})
-		// Calculate connection state counts
 		for _, conn := range app.Connections {
 			switch conn.State {
 			case model.StateEstablished:
@@ -120,7 +108,7 @@ func (c *darwinCollector) Collect(ctx context.Context) (*model.NetworkSnapshot, 
 	return snapshot, nil
 }
 
-func (c *darwinCollector) getProcessInfo(ctx context.Context, pid int32) processInfo {
+func (c *linuxCollector) getProcessInfo(ctx context.Context, pid int32) processInfo {
 	c.cacheMu.RLock()
 	if info, ok := c.processCache[pid]; ok {
 		c.cacheMu.RUnlock()
@@ -138,7 +126,6 @@ func (c *darwinCollector) getProcessInfo(ctx context.Context, pid int32) process
 		return processInfo{}
 	}
 
-	// Get executable path (may fail for some processes)
 	exe, _ := proc.ExeWithContext(ctx)
 
 	info := processInfo{name: name, exe: exe}
@@ -150,8 +137,7 @@ func (c *darwinCollector) getProcessInfo(ctx context.Context, pid int32) process
 	return info
 }
 
-func (c *darwinCollector) getProtocol(connType uint32) model.Protocol {
-	// net.SOCK_STREAM = 1 (TCP), net.SOCK_DGRAM = 2 (UDP)
+func (c *linuxCollector) getProtocol(connType uint32) model.Protocol {
 	switch connType {
 	case 1:
 		return model.ProtocolTCP
@@ -162,16 +148,16 @@ func (c *darwinCollector) getProtocol(connType uint32) model.Protocol {
 	}
 }
 
-func (c *darwinCollector) formatRemoteAddr(conn net.ConnectionStat) string {
+func (c *linuxCollector) formatRemoteAddr(conn net.ConnectionStat) string {
 	if conn.Raddr.IP == "" || conn.Raddr.Port == 0 {
 		return "*"
 	}
 	return formatAddr(conn.Raddr.IP, conn.Raddr.Port)
 }
 
-func (c *darwinCollector) getState(conn net.ConnectionStat) model.ConnectionState {
+func (c *linuxCollector) getState(conn net.ConnectionStat) model.ConnectionState {
 	if conn.Status == "" {
-		return model.StateNone // UDP has no state
+		return model.StateNone
 	}
 	return model.ConnectionState(conn.Status)
 }
