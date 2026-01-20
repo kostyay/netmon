@@ -156,8 +156,8 @@ func (c *linuxCollector) formatRemoteAddr(conn net.ConnectionStat) string {
 }
 
 func (c *linuxCollector) getState(conn net.ConnectionStat) model.ConnectionState {
-	if conn.Status == "" {
-		return model.StateNone
+	if conn.Status == "" || conn.Status == "NONE" {
+		return model.StateNone // UDP has no state
 	}
 	return model.ConnectionState(conn.Status)
 }
