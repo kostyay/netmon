@@ -12,10 +12,98 @@ import (
 
 // Layout constants for fixed header/footer with scrollable content.
 const (
-	headerHeight = 1 // title row
+	headerHeight = 3 // double-line box header (top border + content + bottom border)
 	footerHeight = 2 // crumbs + keybindings
 	frameHeight  = 2 // top and bottom border
 )
+
+// renderHeader renders the industrial-style header with live indicator and stats.
+func (m Model) renderHeader() string {
+	borderStyle := BorderStyle()
+	titleStyle := HeaderStyle()
+	liveStyle := LiveIndicatorStyle()
+	statsStyle := StatsStyle()
+	warnStyle := WarnStyle()
+
+	innerWidth := m.width - 2
+
+	// Double-line box drawing
+	topLeft := "╔"
+	topRight := "╗"
+	bottomLeft := "╚"
+	bottomRight := "╝"
+	horizontal := "═"
+	vertical := "║"
+
+	// Build top border with centered NETMON title
+	title := " NETMON "
+	titleLen := len(title)
+	remainingWidth := innerWidth - titleLen
+	if remainingWidth < 0 {
+		remainingWidth = 0
+	}
+	leftPad := remainingWidth / 2
+	rightPad := remainingWidth - leftPad
+
+	topBorder := borderStyle.Render(topLeft)
+	topBorder += borderStyle.Render(strings.Repeat(horizontal, leftPad))
+	topBorder += titleStyle.Render(title)
+	topBorder += borderStyle.Render(strings.Repeat(horizontal, rightPad))
+	topBorder += borderStyle.Render(topRight)
+
+	// Build content line with live indicator and stats
+	// Live indicator: ◉ (filled) or ○ (empty) based on animation frame
+	liveIndicator := "◉"
+	if m.animations && m.animationFrame == 1 {
+		liveIndicator = "○"
+	}
+	liveText := liveStyle.Render(liveIndicator + " LIVE")
+
+	// Connection count
+	connCount := 0
+	var totalTX, totalRX uint64
+	if m.snapshot != nil {
+		connCount = m.snapshot.TotalConnections()
+		// Aggregate TX/RX from cache
+		for _, stats := range m.netIOCache {
+			totalTX += stats.BytesSent
+			totalRX += stats.BytesRecv
+		}
+	}
+
+	// Format stats
+	statsText := statsStyle.Render(fmt.Sprintf("  %d connections", connCount))
+	ioText := statsStyle.Render(fmt.Sprintf("   ▲ %s   ▼ %s", formatBytes(totalTX), formatBytes(totalRX)))
+	refreshText := statsStyle.Render(fmt.Sprintf("   %.1fs", m.refreshInterval.Seconds()))
+
+	// Error or update indicator
+	rightContent := ""
+	if m.lastError != nil {
+		rightContent = warnStyle.Render(fmt.Sprintf("  ⚠ %s", truncateString(m.lastError.Error(), 30)))
+	} else if m.updateAvailable != "" {
+		rightContent = warnStyle.Render(fmt.Sprintf("  ▲ %s", m.updateAvailable))
+	}
+
+	content := liveText + statsText + ioText + refreshText + rightContent
+
+	// Pad content to fill width
+	contentWidth := lipgloss.Width(content)
+	padding := innerWidth - contentWidth - 2 // -2 for vertical bars
+	if padding < 0 {
+		padding = 0
+	}
+
+	contentLine := borderStyle.Render(vertical)
+	contentLine += " " + content + strings.Repeat(" ", padding) + " "
+	contentLine += borderStyle.Render(vertical)
+
+	// Build bottom border
+	bottomBorder := borderStyle.Render(bottomLeft)
+	bottomBorder += borderStyle.Render(strings.Repeat(horizontal, innerWidth))
+	bottomBorder += borderStyle.Render(bottomRight)
+
+	return topBorder + "\n" + contentLine + "\n" + bottomBorder
+}
 
 // frozenHeaderHeight returns the number of lines for the frozen table header.
 // This varies by view level.
@@ -133,25 +221,26 @@ func (m Model) View() string {
 		return LoadingStyle().Render("Initializing...")
 	}
 
-	// Help modal overlay
+	// Render base content
+	baseContent := m.renderBaseView()
+
+	// Overlay modals if active
 	if m.helpMode {
-		return m.renderHelpModal()
+		return m.overlayModal(baseContent, m.renderHelpModalContent(), "Keyboard Shortcuts", 60)
 	}
-
-	// Settings modal overlay
 	if m.settingsMode {
-		return m.renderSettingsModal()
+		return m.overlayModal(baseContent, m.renderSettingsModalContent(), "Settings", 44)
 	}
 
+	return baseContent
+}
+
+// renderBaseView renders the main UI without modals.
+func (m Model) renderBaseView() string {
 	var b strings.Builder
 
-	// === HEADER (fixed at top, full width) ===
-	headerText := "netmon - Network Monitor"
-	if m.lastError != nil {
-		headerText = fmt.Sprintf("netmon - Network Monitor  │  Error: %s", m.lastError.Error())
-	}
-	header := HeaderStyle().Width(m.width).Render(headerText)
-	b.WriteString(header)
+	// === HEADER (industrial double-line box with live stats) ===
+	b.WriteString(m.renderHeader())
 	b.WriteString("\n")
 
 	// === CONTENT (wrapped in frame with frozen header + scrollable viewport) ===
@@ -218,32 +307,29 @@ func (m Model) renderFrameWithFrozenHeader(title string) string {
 	result.WriteString(topBorder)
 	result.WriteString("\n")
 
-	// Render frozen header lines (outside viewport, won't scroll)
-	frozenHeader := m.renderFrozenHeader()
-	if frozenHeader != "" {
-		for _, line := range strings.Split(frozenHeader, "\n") {
-			result.WriteString(borderStyle.Render(vertical))
-			result.WriteString(" ") // left padding
-			result.WriteString(padRight(line, innerWidth-2))
-			result.WriteString(" ") // right padding
-			result.WriteString(borderStyle.Render(vertical))
-			result.WriteString("\n")
-		}
-	}
-
-	// Render viewport content (scrollable data rows)
-	viewportContent := m.viewport.View()
-	for _, line := range strings.Split(viewportContent, "\n") {
+	// Helper to render a content line with borders
+	renderLine := func(line string) {
 		result.WriteString(borderStyle.Render(vertical))
-		result.WriteString(" ") // left padding
+		result.WriteString(" ")
 		result.WriteString(padRight(line, innerWidth-2))
-		result.WriteString(" ") // right padding
+		result.WriteString(" ")
 		result.WriteString(borderStyle.Render(vertical))
 		result.WriteString("\n")
 	}
 
-	result.WriteString(bottomBorder)
+	// Render frozen header lines (outside viewport, won't scroll)
+	if frozenHeader := m.renderFrozenHeader(); frozenHeader != "" {
+		for _, line := range strings.Split(frozenHeader, "\n") {
+			renderLine(line)
+		}
+	}
 
+	// Render viewport content (scrollable data rows)
+	for _, line := range strings.Split(m.viewport.View(), "\n") {
+		renderLine(line)
+	}
+
+	result.WriteString(bottomBorder)
 	return result.String()
 }
 
@@ -253,28 +339,25 @@ func (m Model) renderBreadcrumbsText() string {
 	if view == nil {
 		return ""
 	}
-
-	var parts []string
 	switch view.Level {
 	case LevelProcessList:
-		parts = append(parts, "Processes")
+		return "PROCESSES"
 	case LevelConnections:
-		parts = append(parts, "Processes", view.ProcessName)
+		return "PROCESSES > " + view.ProcessName
 	case LevelAllConnections:
-		parts = append(parts, "All Connections")
+		return "ALL CONNECTIONS"
+	default:
+		return ""
 	}
-
-	crumbs := strings.Join(parts, " > ")
-	return fmt.Sprintf("📍 %s  |  Refresh: %.1fs", crumbs, m.refreshInterval.Seconds())
 }
 
 // renderFooter renders the two-row footer with crumbs and keybindings.
 func (m Model) renderFooter() string {
 	var b strings.Builder
+	statusStyle := StatusStyle()
 
-	// Row 1: Kill mode, result message, search input, or breadcrumbs
+	// Row 1: Status line (kill mode, result, search, or breadcrumbs)
 	if m.killMode && m.killTarget != nil {
-		// Show kill confirmation prompt
 		var prompt string
 		if len(m.killTarget.PIDs) > 1 {
 			prompt = fmt.Sprintf("Kill %d PIDs of %s with %s? [y/n]",
@@ -285,99 +368,90 @@ func (m Model) renderFooter() string {
 		}
 		b.WriteString(ErrorStyle().Width(m.width).Render(prompt))
 	} else if m.killResult != "" && time.Since(m.killResultAt) < 2*time.Second {
-		// Show kill result message (auto-dismiss after 2s)
-		b.WriteString(StatusStyle().Width(m.width).Render(m.killResult))
+		b.WriteString(statusStyle.Width(m.width).Render(m.killResult))
 	} else if m.searchMode {
-		// Show search input with cursor
-		b.WriteString(StatusStyle().Width(m.width).Render(fmt.Sprintf("/%s█", m.searchQuery)))
-	} else if m.activeFilter != "" {
-		// Show filter indicator + breadcrumbs
-		filterText := fmt.Sprintf("[filter: %s]  %s", m.activeFilter, m.renderBreadcrumbsText())
-		b.WriteString(StatusStyle().Width(m.width).Render(filterText))
+		b.WriteString(statusStyle.Width(m.width).Render(fmt.Sprintf("/%s█", m.searchQuery)))
 	} else {
-		b.WriteString(StatusStyle().Width(m.width).Render(m.renderBreadcrumbsText()))
+		// Breadcrumbs + filter indicator
+		statusLine := m.renderBreadcrumbsText()
+		if m.activeFilter != "" {
+			statusLine = fmt.Sprintf("[%s] %s", m.activeFilter, statusLine)
+		}
+		b.WriteString(statusStyle.Width(m.width).Render(statusLine))
 	}
 	b.WriteString("\n")
 
-	// Row 2: Keybindings (full width)
+	// Row 2: Keybindings
 	b.WriteString(FooterStyle().Width(m.width).Render(m.renderKeybindingsText()))
 
 	return b.String()
 }
 
-// renderKeybindingsText returns the keybindings text with inline styling.
+// renderKeybindingsText returns the keybindings text with grouped styling.
 func (m Model) renderKeybindingsText() string {
 	keyStyle := FooterKeyStyle()
 	descStyle := FooterDescStyle()
+	groupStyle := FooterGroupStyle()
 
 	view := m.CurrentView()
-	var parts []string
-
 	if view == nil {
 		return ""
 	}
 
 	// Kill mode keybindings
 	if m.killMode {
-		parts = []string{
-			descStyle.Render("[KILL]"),
-			keyStyle.Render("y") + descStyle.Render(" Confirm"),
-			keyStyle.Render("n/Esc") + descStyle.Render(" Cancel"),
-		}
-		return strings.Join(parts, "  ")
+		return groupStyle.Render("KILL") + "  " +
+			keyStyle.Render("y") + descStyle.Render(" confirm") + "  " +
+			keyStyle.Render("n") + descStyle.Render("/") + keyStyle.Render("esc") + descStyle.Render(" cancel")
 	}
 
-	// Sort mode has its own keybindings
+	// Sort mode keybindings
 	if view.SortMode {
-		parts = []string{
-			descStyle.Render("[SORT MODE]"),
-			keyStyle.Render("←→") + descStyle.Render(" Column"),
-			keyStyle.Render("Enter") + descStyle.Render(" Sort"),
-			keyStyle.Render("Esc") + descStyle.Render(" Cancel"),
-		}
-		return strings.Join(parts, "  ")
+		return groupStyle.Render("SORT") + "  " +
+			keyStyle.Render("←→") + descStyle.Render(" column") + "  " +
+			keyStyle.Render("enter") + descStyle.Render(" apply") + "  " +
+			keyStyle.Render("esc") + descStyle.Render(" cancel")
 	}
 
 	// Search mode keybindings
 	if m.searchMode {
-		parts = []string{
-			descStyle.Render("[SEARCH]"),
-			keyStyle.Render("Enter") + descStyle.Render(" Apply"),
-			keyStyle.Render("Esc") + descStyle.Render(" Cancel"),
-		}
-		return strings.Join(parts, "  ")
+		return groupStyle.Render("SEARCH") + "  " +
+			keyStyle.Render("enter") + descStyle.Render(" apply") + "  " +
+			keyStyle.Render("esc") + descStyle.Render(" cancel")
 	}
 
+	// Build grouped keybindings: NAV │ ACTION │ VIEW │ OTHER
+	nav := keyStyle.Render("↑↓") + descStyle.Render(" nav") + "  " +
+		keyStyle.Render("pgup/dn") + descStyle.Render(" page")
+
+	var action string
 	switch view.Level {
 	case LevelProcessList:
-		parts = []string{
-			keyStyle.Render("Enter") + descStyle.Render(" Drill-in"),
-			keyStyle.Render("/") + descStyle.Render(" Search"),
-			keyStyle.Render("x/X") + descStyle.Render(" Kill"),
-			keyStyle.Render("v") + descStyle.Render(" All"),
-			keyStyle.Render("?") + descStyle.Render(" Help"),
-			keyStyle.Render("q") + descStyle.Render(" Quit"),
-		}
+		action = keyStyle.Render("enter") + descStyle.Render(" drill") + "  " +
+			keyStyle.Render("x") + descStyle.Render("/") + keyStyle.Render("X") + descStyle.Render(" kill")
 	case LevelConnections:
-		parts = []string{
-			keyStyle.Render("/") + descStyle.Render(" Search"),
-			keyStyle.Render("x/X") + descStyle.Render(" Kill"),
-			keyStyle.Render("Esc") + descStyle.Render(" Back"),
-			keyStyle.Render("v") + descStyle.Render(" All"),
-			keyStyle.Render("?") + descStyle.Render(" Help"),
-			keyStyle.Render("q") + descStyle.Render(" Quit"),
-		}
+		action = keyStyle.Render("esc") + descStyle.Render(" back") + "  " +
+			keyStyle.Render("x") + descStyle.Render("/") + keyStyle.Render("X") + descStyle.Render(" kill")
 	case LevelAllConnections:
-		parts = []string{
-			keyStyle.Render("/") + descStyle.Render(" Search"),
-			keyStyle.Render("x/X") + descStyle.Render(" Kill"),
-			keyStyle.Render("v") + descStyle.Render(" Grouped"),
-			keyStyle.Render("?") + descStyle.Render(" Help"),
-			keyStyle.Render("q") + descStyle.Render(" Quit"),
-		}
+		action = keyStyle.Render("x") + descStyle.Render("/") + keyStyle.Render("X") + descStyle.Render(" kill")
 	}
 
-	return strings.Join(parts, "  ")
+	viewToggle := ""
+	switch view.Level {
+	case LevelProcessList, LevelConnections:
+		viewToggle = keyStyle.Render("v") + descStyle.Render(" flat")
+	case LevelAllConnections:
+		viewToggle = keyStyle.Render("v") + descStyle.Render(" grouped")
+	}
+
+	other := keyStyle.Render("/") + descStyle.Render(" search") + "  " +
+		keyStyle.Render("s") + descStyle.Render(" sort") + "  " +
+		keyStyle.Render("S") + descStyle.Render(" settings") + "  " +
+		keyStyle.Render("?") + descStyle.Render(" help") + "  " +
+		keyStyle.Render("q") + descStyle.Render(" quit")
+
+	sep := descStyle.Render(" │ ")
+	return nav + sep + action + sep + viewToggle + sep + other
 }
 
 // currentFilter returns the active filter string, preferring searchQuery when in search mode.
@@ -978,35 +1052,73 @@ func (m Model) cursorLinePosition() int {
 	return view.Cursor
 }
 
-// centerModal renders a framed modal centered on screen.
-func (m Model) centerModal(content, title string, modalWidth int) string {
+// overlayModal renders a modal on top of background content with dimmed backdrop.
+func (m Model) overlayModal(background, content, title string, modalWidth int) string {
 	if m.width < modalWidth+4 {
 		modalWidth = m.width - 4
 	}
 
-	lines := strings.Split(content, "\n")
-	modalHeight := len(lines) + 4 // content + border + padding
+	contentLines := strings.Split(content, "\n")
+	modalHeight := len(contentLines) + 5 // content + top border + separator + bottom border + padding
 
 	framedModal := RenderFrameWithTitle(content, title, modalWidth, modalHeight)
+	modalLines := strings.Split(framedModal, "\n")
 
-	leftPad := max((m.width-modalWidth)/2, 0)
+	// Calculate modal position
+	leftPad := max((m.width-modalWidth-4)/2, 0)
 	topPad := max((m.height-modalHeight)/2, 0)
 
-	var b strings.Builder
-	for i := 0; i < topPad; i++ {
-		b.WriteString(DimmedStyle().Render(strings.Repeat(" ", m.width)))
-		b.WriteString("\n")
+	// Split background into lines and dim them
+	bgLines := strings.Split(background, "\n")
+	// Ensure we have enough lines
+	for len(bgLines) < m.height {
+		bgLines = append(bgLines, "")
 	}
-	for _, line := range strings.Split(framedModal, "\n") {
-		b.WriteString(strings.Repeat(" ", leftPad))
-		b.WriteString(line)
-		b.WriteString("\n")
+
+	// Dim all background lines
+	dimStyle := DimmedStyle()
+	for i := range bgLines {
+		bgLines[i] = dimStyle.Render(stripAnsi(bgLines[i]))
 	}
-	return b.String()
+
+	// Overlay modal onto background
+	for i, modalLine := range modalLines {
+		bgIdx := topPad + i
+		if bgIdx >= 0 && bgIdx < len(bgLines) {
+			// Build the line: dimmed left + modal + dimmed right
+			leftBg := ""
+			if leftPad > 0 {
+				leftBg = dimStyle.Render(strings.Repeat(" ", leftPad))
+			}
+			bgLines[bgIdx] = leftBg + modalLine
+		}
+	}
+
+	return strings.Join(bgLines[:m.height], "\n")
 }
 
-// renderHelpModal renders the help modal overlay with keyboard shortcuts.
-func (m Model) renderHelpModal() string {
+// stripAnsi removes ANSI escape codes from a string.
+func stripAnsi(s string) string {
+	var result strings.Builder
+	inEscape := false
+	for _, r := range s {
+		if r == '\x1b' {
+			inEscape = true
+			continue
+		}
+		if inEscape {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				inEscape = false
+			}
+			continue
+		}
+		result.WriteRune(r)
+	}
+	return result.String()
+}
+
+// renderHelpModalContent returns the help modal content.
+func (m Model) renderHelpModalContent() string {
 	keyStyle := FooterKeyStyle()
 	descStyle := FooterDescStyle()
 
@@ -1047,60 +1159,50 @@ func (m Model) renderHelpModal() string {
 		formatKey(KeyQuit) + ", " + keyStyle.Render("ctrl+c") + descStyle.Render(" Quit"),
 	}
 
-	return m.centerModal(strings.Join(lines, "\n"), "Keyboard Shortcuts", 60)
+	return strings.Join(lines, "\n")
 }
 
-// renderSettingsModal renders the settings modal overlay.
-func (m Model) renderSettingsModal() string {
-	var b strings.Builder
+// renderSettingsModalContent returns the settings modal content.
+func (m Model) renderSettingsModalContent() string {
+	var lines []string
 
-	// Header
-	header := HeaderStyle().Width(m.width).Render("netmon - Settings")
-	b.WriteString(header)
-	b.WriteString("\n\n")
-
-	// Settings options
 	settings := []struct {
 		name    string
 		enabled bool
 		desc    string
 	}{
-		{"DNS Resolution", m.dnsEnabled, "Resolve IP addresses to hostnames"},
-		{"Service Names", m.serviceNames, "Show service names instead of port numbers"},
-		{"Highlight Changes", m.highlightChanges, "Highlight added/removed connections"},
+		{"DNS Resolution", m.dnsEnabled, "Reverse lookup IPs to hostnames"},
+		{"Service Names", m.serviceNames, "Show http/https instead of 80/443"},
+		{"Highlight Changes", m.highlightChanges, "Flash new/removed connections"},
+		{"Animations", m.animations, "Enable UI animations (pulse, spinners)"},
 	}
 
 	for i, s := range settings {
-		// Selection indicator
 		cursor := "  "
 		if i == m.settingsCursor {
-			cursor = "> "
+			cursor = "▸ "
 		}
-
-		// Toggle state
 		toggle := "[ ]"
 		if s.enabled {
-			toggle = "[x]"
+			toggle = "[■]"
 		}
-
-		// Row
-		row := fmt.Sprintf("%s%s %s - %s", cursor, toggle, s.name, s.desc)
+		row := fmt.Sprintf("%s%s %s", cursor, toggle, s.name)
 		if i == m.settingsCursor {
-			b.WriteString(SelectedConnStyle().Render(row))
-		} else {
-			b.WriteString(ConnStyle().Render(row))
+			row = SelectedConnStyle().Render(row)
 		}
-		b.WriteString("\n")
+		lines = append(lines, row)
+		// Description line (dimmed, indented)
+		lines = append(lines, DimmedStyle().Render("      "+s.desc))
 	}
 
-	// Footer with keybindings
-	b.WriteString("\n")
+	// Footer keybindings
+	lines = append(lines, "")
 	keyStyle := FooterKeyStyle()
 	descStyle := FooterDescStyle()
 	footer := keyStyle.Render("↑↓") + descStyle.Render(" Navigate  ") +
 		keyStyle.Render("Space") + descStyle.Render(" Toggle  ") +
 		keyStyle.Render("Esc") + descStyle.Render(" Close")
-	b.WriteString(FooterStyle().Width(m.width).Render(footer))
+	lines = append(lines, footer)
 
-	return b.String()
+	return strings.Join(lines, "\n")
 }

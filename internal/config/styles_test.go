@@ -15,8 +15,8 @@ func TestDefaultTheme(t *testing.T) {
 		t.Fatal("DefaultTheme returned nil")
 	}
 
-	if theme.Name != "dracula" {
-		t.Errorf("Expected theme name 'dracula', got '%s'", theme.Name)
+	if theme.Name != "industrial" {
+		t.Errorf("Expected theme name 'industrial', got '%s'", theme.Name)
 	}
 
 	// Verify some colors are set
@@ -296,23 +296,33 @@ func TestLoadTheme_HandlesMalformedYAML(t *testing.T) {
 }
 
 func TestLoadTheme_EmbeddedFileExists(t *testing.T) {
-	// Verify the embedded default skin can be read
-	data, err := defaultSkin.ReadFile("skins/dracula.yaml")
+	// Verify the embedded industrial skin can be read
+	data, err := defaultSkin.ReadFile("skins/industrial.yaml")
 	if err != nil {
-		t.Fatalf("Failed to read embedded skin: %v", err)
+		t.Fatalf("Failed to read embedded industrial skin: %v", err)
 	}
 
 	if len(data) == 0 {
-		t.Error("Embedded skin file is empty")
+		t.Error("Embedded industrial skin file is empty")
 	}
 
 	// Verify it's valid YAML
 	var theme Theme
 	if err := yaml.Unmarshal(data, &theme); err != nil {
-		t.Fatalf("Embedded skin is not valid YAML: %v", err)
+		t.Fatalf("Embedded industrial skin is not valid YAML: %v", err)
 	}
 
-	if theme.Name == "" {
-		t.Error("Embedded theme should have a name")
+	if theme.Name != "industrial" {
+		t.Errorf("Embedded theme should be 'industrial', got '%s'", theme.Name)
+	}
+
+	// Verify dracula is still available as a fallback option
+	draculaData, err := defaultSkin.ReadFile("skins/dracula.yaml")
+	if err != nil {
+		t.Fatalf("Failed to read embedded dracula skin: %v", err)
+	}
+
+	if len(draculaData) == 0 {
+		t.Error("Embedded dracula skin file is empty")
 	}
 }

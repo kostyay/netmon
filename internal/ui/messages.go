@@ -27,3 +27,12 @@ type DNSResolvedMsg struct {
 	Hostname string
 	Err      error
 }
+
+// VersionCheckMsg contains result of GitHub release check.
+type VersionCheckMsg struct {
+	LatestVersion string // empty if up-to-date
+	Err           error  // nil on success (even if up-to-date)
+}
+
+// AnimationTickMsg is sent for UI animation updates (e.g., live indicator pulse).
+type AnimationTickMsg time.Time

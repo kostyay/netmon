@@ -404,8 +404,8 @@ func TestBreadcrumbs_AtRoot(t *testing.T) {
 
 	crumbs := m.renderBreadcrumbsText()
 
-	if !strings.Contains(crumbs, "Processes") {
-		t.Errorf("breadcrumbs at root should contain 'Processes', got: %s", crumbs)
+	if !strings.Contains(crumbs, "PROCESSES") {
+		t.Errorf("breadcrumbs at root should contain 'PROCESSES', got: %s", crumbs)
 	}
 }
 
@@ -420,8 +420,8 @@ func TestBreadcrumbs_AtConnections(t *testing.T) {
 
 	crumbs := m.renderBreadcrumbsText()
 
-	if !strings.Contains(crumbs, "Processes") {
-		t.Errorf("breadcrumbs should contain 'Processes', got: %s", crumbs)
+	if !strings.Contains(crumbs, "PROCESSES") {
+		t.Errorf("breadcrumbs should contain 'PROCESSES', got: %s", crumbs)
 	}
 	if !strings.Contains(crumbs, "Chrome") {
 		t.Errorf("breadcrumbs should contain 'Chrome', got: %s", crumbs)

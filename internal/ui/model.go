@@ -167,6 +167,16 @@ type Model struct {
 
 	// PID targeting (from --pid flag)
 	targetPID int32 // PID to drill into on first snapshot (0 = disabled)
+
+	// Version string (set via WithVersion)
+	version string
+
+	// Update available (set via VersionCheckMsg)
+	updateAvailable string // e.g., "v1.2.0" (empty if up-to-date)
+
+	// Animation state
+	animations     bool // whether animations are enabled
+	animationFrame int  // current animation frame (for pulsing indicators)
 }
 
 // killTargetInfo holds info about the process to be killed.
@@ -190,6 +200,7 @@ func NewModel() Model {
 		dnsCache:         make(map[string]string),
 		dnsEnabled:       config.CurrentSettings.DNSEnabled,
 		serviceNames:     config.CurrentSettings.ServiceNames,
+		animations:       config.CurrentSettings.Animations,
 		stack: []ViewState{{
 			Level:          LevelProcessList,
 			ProcessName:    "",
@@ -212,6 +223,12 @@ func (m Model) WithFilter(filter string) Model {
 // WithPID returns a copy of the model that will drill into the given PID on first snapshot.
 func (m Model) WithPID(pid int32) Model {
 	m.targetPID = pid
+	return m
+}
+
+// WithVersion returns a copy of the model with version string set.
+func (m Model) WithVersion(v string) Model {
+	m.version = v
 	return m
 }
 

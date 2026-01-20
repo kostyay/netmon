@@ -70,9 +70,9 @@ func renderTableHeader(columns []columnDef, widths []int, selectedCol, sortCol S
 		var sortIndicator string
 		if isSorted {
 			if sortAsc {
-				sortIndicator = "↑"
+				sortIndicator = "△"
 			} else {
-				sortIndicator = "↓"
+				sortIndicator = "▽"
 			}
 		}
 

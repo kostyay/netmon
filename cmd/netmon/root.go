@@ -19,6 +19,9 @@ import (
 	"github.com/kostyay/netmon/internal/ui"
 )
 
+// Version is set via ldflags at build time
+var Version = "dev"
+
 var (
 	jsonOutput bool
 	pidFilter  int
@@ -80,7 +83,7 @@ Optionally pass a port number to filter connections:
 		}
 
 		// Default behavior: launch TUI
-		m := ui.NewModel()
+		m := ui.NewModel().WithVersion(Version)
 		if portFilter != "" {
 			m = m.WithFilter(portFilter)
 		}

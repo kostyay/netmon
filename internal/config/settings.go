@@ -12,6 +12,7 @@ type Settings struct {
 	DNSEnabled       bool `yaml:"dnsEnabled"`
 	ServiceNames     bool `yaml:"serviceNames"`
 	HighlightChanges bool `yaml:"highlightChanges"`
+	Animations       bool `yaml:"animations"` // Enable UI animations (live pulse, spinners)
 }
 
 // DefaultSettings returns the default settings.
@@ -20,6 +21,7 @@ func DefaultSettings() *Settings {
 		DNSEnabled:       true, // On by default
 		ServiceNames:     true, // On by default (no overhead)
 		HighlightChanges: true, // On by default
+		Animations:       true, // On by default
 	}
 }
 

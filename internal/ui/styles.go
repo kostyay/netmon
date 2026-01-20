@@ -54,20 +54,6 @@ func EmptyStyle() lipgloss.Style {
 		Italic(true)
 }
 
-// AppStyle returns the style for application rows in grouped view.
-func AppStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Table.FgColor))
-}
-
-// SelectedAppStyle returns the style for selected application in grouped view.
-func SelectedAppStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Table.CursorFgColor)).
-		Background(lipgloss.Color(config.CurrentTheme.Styles.Table.CursorBgColor)).
-		Bold(true)
-}
-
 // ConnStyle returns the style for connection rows.
 func ConnStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
@@ -121,28 +107,21 @@ func RemovedConnStyle() lipgloss.Style {
 		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Table.RemovedFgColor))
 }
 
-// FrameStyle returns the style for the main content frame with border.
-func FrameStyle(width, height int) lipgloss.Style {
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(config.CurrentTheme.Styles.Table.HeaderFgColor)).
-		Width(width-2).   // Account for border
-		Height(height-2). // Account for border
-		Padding(0, 1)
-}
-
 // RenderFrameWithTitle renders content in a frame with a centered title on the top border.
+// Uses heavy box drawing for modal prominence.
 func RenderFrameWithTitle(content string, title string, width, height int) string {
-	borderColor := lipgloss.Color(config.CurrentTheme.Styles.Table.HeaderFgColor)
-	titleColor := lipgloss.Color(config.CurrentTheme.Styles.Header.TitleFg)
+	borderColor := lipgloss.Color(config.CurrentTheme.Styles.Modal.BorderFgColor)
+	titleColor := lipgloss.Color(config.CurrentTheme.Styles.Modal.AccentFgColor)
 
-	// Border characters for rounded border
-	topLeft := "╭"
-	topRight := "╮"
-	bottomLeft := "╰"
-	bottomRight := "╯"
-	horizontal := "─"
-	vertical := "│"
+	// Heavy box drawing characters for modal prominence
+	topLeft := "┏"
+	topRight := "┓"
+	bottomLeft := "┗"
+	bottomRight := "┛"
+	horizontal := "━"
+	vertical := "┃"
+	sepLeft := "┣"
+	sepRight := "┫"
 
 	// Style for border characters
 	borderStyle := lipgloss.NewStyle().Foreground(borderColor)
@@ -170,6 +149,11 @@ func RenderFrameWithTitle(content string, title string, width, height int) strin
 	topBorder += borderStyle.Render(strings.Repeat(horizontal, rightPad))
 	topBorder += borderStyle.Render(topRight)
 
+	// Build separator line (under title)
+	sepLine := borderStyle.Render(sepLeft)
+	sepLine += borderStyle.Render(strings.Repeat(horizontal, innerWidth))
+	sepLine += borderStyle.Render(sepRight)
+
 	// Build bottom border
 	bottomBorder := borderStyle.Render(bottomLeft)
 	bottomBorder += borderStyle.Render(strings.Repeat(horizontal, innerWidth))
@@ -178,25 +162,30 @@ func RenderFrameWithTitle(content string, title string, width, height int) strin
 	// Style for content area with padding
 	contentStyle := lipgloss.NewStyle().
 		Width(innerWidth).
-		Height(height-2).
+		Height(height-3). // -3 for top, sep, and bottom
 		Padding(0, 1)
 
 	styledContent := contentStyle.Render(content)
 
 	// Build complete frame
-	var result string
-	result = topBorder + "\n"
+	var result strings.Builder
+	result.WriteString(topBorder)
+	result.WriteString("\n")
+	result.WriteString(sepLine)
+	result.WriteString("\n")
 
 	// Add content lines with vertical borders
 	lines := splitLines(styledContent)
 	for _, line := range lines {
-		// Ensure line is padded to inner width
-		result += borderStyle.Render(vertical) + padRight(line, innerWidth) + borderStyle.Render(vertical) + "\n"
+		result.WriteString(borderStyle.Render(vertical))
+		result.WriteString(padRight(line, innerWidth))
+		result.WriteString(borderStyle.Render(vertical))
+		result.WriteString("\n")
 	}
 
-	result += bottomBorder
+	result.WriteString(bottomBorder)
 
-	return result
+	return result.String()
 }
 
 // splitLines splits a string into lines.
@@ -224,3 +213,36 @@ func DimmedStyle() lipgloss.Style {
 		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Modal.DimmedFgColor)).
 		Faint(true)
 }
+
+// LiveIndicatorStyle returns the style for the LIVE indicator (green).
+func LiveIndicatorStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Header.LiveFg)).
+		Bold(true)
+}
+
+// WarnStyle returns the style for warning/attention text (amber).
+func WarnStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Header.WarnFg))
+}
+
+// StatsStyle returns the style for muted stats text.
+func StatsStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Header.StatsFg))
+}
+
+// FooterGroupStyle returns the style for footer group labels (NAV, ACTION).
+func FooterGroupStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Footer.GroupFgColor)).
+		Bold(true)
+}
+
+// BorderStyle returns the style for borders.
+func BorderStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Border.FgColor))
+}
+

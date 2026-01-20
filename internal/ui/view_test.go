@@ -165,8 +165,8 @@ func TestView_ContainsHeader(t *testing.T) {
 
 	view := m.View()
 
-	if !strings.Contains(view, "netmon") {
-		t.Error("View() should contain 'netmon' header")
+	if !strings.Contains(view, "NETMON") {
+		t.Error("View() should contain 'NETMON' header")
 	}
 }
 
@@ -179,8 +179,8 @@ func TestView_ContainsFooter(t *testing.T) {
 
 	view := m.View()
 
-	if !strings.Contains(view, "Quit") {
-		t.Error("View() should contain 'Quit' in footer")
+	if !strings.Contains(view, "quit") {
+		t.Error("View() should contain 'quit' in footer")
 	}
 }
 
@@ -194,8 +194,9 @@ func TestView_ContainsRefreshRate(t *testing.T) {
 
 	view := m.View()
 
-	if !strings.Contains(view, "Refresh:") {
-		t.Error("View() should contain 'Refresh:' status")
+	// Refresh rate now shown in header (e.g., "2.0s")
+	if !strings.Contains(view, "2.0s") {
+		t.Error("View() should contain '2.0s' refresh rate in header")
 	}
 }
 
@@ -403,11 +404,8 @@ func TestRenderBreadcrumbs_ProcessList(t *testing.T) {
 
 	result := m.renderBreadcrumbsText()
 
-	if !strings.Contains(result, "Processes") {
-		t.Error("Breadcrumbs should contain 'Processes'")
-	}
-	if !strings.Contains(result, "Refresh:") {
-		t.Error("Breadcrumbs should contain refresh rate")
+	if !strings.Contains(result, "PROCESSES") {
+		t.Error("Breadcrumbs should contain 'PROCESSES'")
 	}
 }
 
@@ -422,8 +420,8 @@ func TestRenderBreadcrumbs_ConnectionsLevel(t *testing.T) {
 
 	result := m.renderBreadcrumbsText()
 
-	if !strings.Contains(result, "Processes") {
-		t.Error("Breadcrumbs should contain 'Processes'")
+	if !strings.Contains(result, "PROCESSES") {
+		t.Error("Breadcrumbs should contain 'PROCESSES'")
 	}
 	if !strings.Contains(result, "Chrome") {
 		t.Error("Breadcrumbs should contain 'Chrome'")
@@ -483,7 +481,7 @@ func TestRenderConnectionsHeader(t *testing.T) {
 		t.Error("Header should contain 'State'")
 	}
 	// PID column removed - redundant in process detail view
-	if !strings.Contains(result, "↑") {
+	if !strings.Contains(result, "△") {
 		t.Error("Header should contain ascending sort indicator")
 	}
 }
@@ -502,7 +500,7 @@ func TestRenderConnectionsHeader_Descending(t *testing.T) {
 	widths := calculateColumnWidths(columns, 100)
 	result := m.renderConnectionsHeader(widths)
 
-	if !strings.Contains(result, "↓") {
+	if !strings.Contains(result, "▽") {
 		t.Error("Header should contain descending sort indicator")
 	}
 }
@@ -629,12 +627,12 @@ func TestRenderKeybindings_ProcessList(t *testing.T) {
 
 	result := m.renderKeybindingsText()
 
-	// Process list should show Drill-in
-	if !strings.Contains(result, "Drill-in") {
-		t.Error("Process list keybindings should contain 'Drill-in'")
+	// Process list should show drill
+	if !strings.Contains(result, "drill") {
+		t.Error("Process list keybindings should contain 'drill'")
 	}
-	if strings.Contains(result, "Back") {
-		t.Error("Process list keybindings should NOT contain 'Back'")
+	if strings.Contains(result, "back") {
+		t.Error("Process list keybindings should NOT contain 'back'")
 	}
 }
 
@@ -647,15 +645,15 @@ func TestRenderKeybindings_Connections(t *testing.T) {
 
 	result := m.renderKeybindingsText()
 
-	// Connections level should show Back and Help
-	if !strings.Contains(result, "Back") {
-		t.Error("Connections keybindings should contain 'Back'")
+	// Connections level should show back and help
+	if !strings.Contains(result, "back") {
+		t.Error("Connections keybindings should contain 'back'")
 	}
-	if !strings.Contains(result, "Help") {
-		t.Error("Connections keybindings should contain 'Help'")
+	if !strings.Contains(result, "help") {
+		t.Error("Connections keybindings should contain 'help'")
 	}
-	if strings.Contains(result, "Drill-in") {
-		t.Error("Connections keybindings should NOT contain 'Drill-in'")
+	if strings.Contains(result, "drill") {
+		t.Error("Connections keybindings should NOT contain 'drill'")
 	}
 }
 
@@ -813,15 +811,15 @@ func TestRenderFooter_ContainsBothRows(t *testing.T) {
 	result := m.renderFooter()
 
 	// Should contain breadcrumbs (row 1)
-	if !strings.Contains(result, "Processes") {
-		t.Error("Footer should contain 'Processes' breadcrumb")
+	if !strings.Contains(result, "PROCESSES") {
+		t.Error("Footer should contain 'PROCESSES' breadcrumb")
 	}
 	// Should contain keybindings (row 2)
-	if !strings.Contains(result, "Help") {
-		t.Error("Footer should contain 'Help' keybinding")
+	if !strings.Contains(result, "help") {
+		t.Error("Footer should contain 'help' keybinding")
 	}
-	if !strings.Contains(result, "Quit") {
-		t.Error("Footer should contain 'Quit' keybinding")
+	if !strings.Contains(result, "quit") {
+		t.Error("Footer should contain 'quit' keybinding")
 	}
 }
 
@@ -890,7 +888,7 @@ func TestRenderFooter_KillResultExpired(t *testing.T) {
 	if strings.Contains(result, "Killed PID 12345") {
 		t.Error("Footer should NOT contain expired kill result message")
 	}
-	if !strings.Contains(result, "Processes") {
+	if !strings.Contains(result, "PROCESSES") {
 		t.Error("Footer should show breadcrumbs when kill result expired")
 	}
 }
@@ -905,15 +903,15 @@ func TestRenderKeybindings_KillMode(t *testing.T) {
 
 	result := m.renderKeybindingsText()
 
-	// Kill mode keybindings
-	if !strings.Contains(result, "[KILL]") {
-		t.Error("Keybindings should contain '[KILL]' label")
+	// Kill mode keybindings (now uses "KILL" group label, "confirm", "cancel")
+	if !strings.Contains(result, "KILL") {
+		t.Error("Keybindings should contain 'KILL' label")
 	}
-	if !strings.Contains(result, "Confirm") {
-		t.Error("Keybindings should contain 'Confirm'")
+	if !strings.Contains(result, "confirm") {
+		t.Error("Keybindings should contain 'confirm'")
 	}
-	if !strings.Contains(result, "Cancel") {
-		t.Error("Keybindings should contain 'Cancel'")
+	if !strings.Contains(result, "cancel") {
+		t.Error("Keybindings should contain 'cancel'")
 	}
 }
 
@@ -927,8 +925,8 @@ func TestRenderKeybindings_ContainsKillKey(t *testing.T) {
 	result := m.renderKeybindingsText()
 
 	// Process list should show x/X for kill
-	if !strings.Contains(result, "x/X") || !strings.Contains(result, "Kill") {
-		t.Error("Keybindings should contain 'x/X Kill'")
+	if !strings.Contains(result, "kill") {
+		t.Error("Keybindings should contain 'kill'")
 	}
 }
 
@@ -1373,22 +1371,22 @@ func TestRenderFrameWithTitle_ContainsContent(t *testing.T) {
 }
 
 func TestRenderFrameWithTitle_HasBorders(t *testing.T) {
-	result := RenderFrameWithTitle("content", "Title", 40, 5)
+	result := RenderFrameWithTitle("content", "Title", 40, 6)
 
-	// Check for rounded border characters
-	if !strings.Contains(result, "╭") {
+	// Check for heavy box drawing characters (modal style)
+	if !strings.Contains(result, "┏") {
 		t.Error("Should contain top-left border")
 	}
-	if !strings.Contains(result, "╮") {
+	if !strings.Contains(result, "┓") {
 		t.Error("Should contain top-right border")
 	}
-	if !strings.Contains(result, "╰") {
+	if !strings.Contains(result, "┗") {
 		t.Error("Should contain bottom-left border")
 	}
-	if !strings.Contains(result, "╯") {
+	if !strings.Contains(result, "┛") {
 		t.Error("Should contain bottom-right border")
 	}
-	if !strings.Contains(result, "│") {
+	if !strings.Contains(result, "┃") {
 		t.Error("Should contain vertical border")
 	}
 }
@@ -1512,10 +1510,10 @@ func TestRenderFooter_PriorityFilterOverBreadcrumbs(t *testing.T) {
 	result := m.renderFooter()
 
 	// Filter indicator should appear with breadcrumbs
-	if !strings.Contains(result, "[filter: ssh]") {
+	if !strings.Contains(result, "[ssh]") {
 		t.Error("Filter indicator should show")
 	}
-	if !strings.Contains(result, "Processes") {
+	if !strings.Contains(result, "PROCESSES") {
 		t.Error("Breadcrumbs should still appear with filter")
 	}
 }
@@ -1533,11 +1531,8 @@ func TestRenderFooter_BreadcrumbsOnly(t *testing.T) {
 	result := m.renderFooter()
 
 	// Only breadcrumbs should appear
-	if !strings.Contains(result, "Processes") {
+	if !strings.Contains(result, "PROCESSES") {
 		t.Error("Breadcrumbs should show")
-	}
-	if strings.Contains(result, "[filter:") {
-		t.Error("No filter indicator when filter is empty")
 	}
 }
 

@@ -11,15 +11,24 @@ import (
 	"github.com/kostyay/netmon/internal/config"
 	"github.com/kostyay/netmon/internal/dns"
 	"github.com/kostyay/netmon/internal/model"
+	"github.com/kostyay/netmon/internal/release"
 )
+
+// Animation tick interval (500ms for pulsing effect).
+const animationInterval = 500 * time.Millisecond
 
 // Init initializes the model.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(
+	cmds := []tea.Cmd{
 		m.tickCmd(),
 		m.fetchData(),
 		m.fetchNetIO(),
-	)
+		m.checkVersion(),
+	}
+	if m.animations {
+		cmds = append(cmds, m.animationTickCmd())
+	}
+	return tea.Batch(cmds...)
 }
 
 // Update handles messages and ensures viewport content/scroll is synced after any state change.
@@ -114,7 +123,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if matchKey(key, KeyDown, KeyDownAlt) {
-				maxCursor := 2 // Number of settings - 1
+				maxCursor := 3 // Number of settings - 1
 				if m.settingsCursor < maxCursor {
 					m.settingsCursor++
 				}
@@ -135,6 +144,14 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.highlightChanges = !m.highlightChanges
 					config.CurrentSettings.HighlightChanges = m.highlightChanges
 					_ = config.SaveSettings(config.CurrentSettings)
+				case 3: // Animations
+					m.animations = !m.animations
+					config.CurrentSettings.Animations = m.animations
+					_ = config.SaveSettings(config.CurrentSettings)
+					// Start animation tick if enabled
+					if m.animations {
+						return m, m.animationTickCmd()
+					}
 				}
 				return m, nil
 			}
@@ -469,6 +486,20 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Cache successful lookup
 		m.dnsCache[msg.IP] = msg.Hostname
 		return m, nil
+
+	case VersionCheckMsg:
+		if msg.Err == nil && msg.LatestVersion != "" {
+			m.updateAvailable = msg.LatestVersion
+		}
+		return m, nil
+
+	case AnimationTickMsg:
+		if !m.animations {
+			return m, nil
+		}
+		// Advance animation frame (cycles 0-1 for pulse effect)
+		m.animationFrame = (m.animationFrame + 1) % 2
+		return m, m.animationTickCmd()
 	}
 
 	return m, nil
@@ -477,6 +508,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) tickCmd() tea.Cmd {
 	return tea.Tick(m.refreshInterval, func(t time.Time) tea.Msg {
 		return TickMsg(t)
+	})
+}
+
+func (m Model) animationTickCmd() tea.Cmd {
+	return tea.Tick(animationInterval, func(t time.Time) tea.Msg {
+		return AnimationTickMsg(t)
 	})
 }
 
@@ -497,6 +534,13 @@ func (m Model) fetchNetIO() tea.Cmd {
 
 		stats, err := m.netIOCollector.Collect(ctx)
 		return NetIOMsg{Stats: stats, Err: err}
+	}
+}
+
+func (m Model) checkVersion() tea.Cmd {
+	return func() tea.Msg {
+		latest, err := release.CheckLatest("kostyay", "netmon", m.version)
+		return VersionCheckMsg{LatestVersion: latest, Err: err}
 	}
 }
 
