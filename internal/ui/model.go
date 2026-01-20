@@ -184,6 +184,7 @@ type killTargetInfo struct {
 	PID         int32   // primary PID (for single PID kills)
 	PIDs        []int32 // all PIDs (for process-level kills)
 	ProcessName string
+	Exe         string // executable path
 	Port        int    // optional, 0 if killing by PID only
 	Signal      string // signal to send (default SIGTERM)
 }

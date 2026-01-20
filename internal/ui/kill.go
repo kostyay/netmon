@@ -38,6 +38,7 @@ func (m Model) enterKillMode(signal string) (tea.Model, tea.Cmd) {
 			PID:         app.PIDs[0],
 			PIDs:        app.PIDs, // Store all PIDs for multi-process apps
 			ProcessName: app.Name,
+			Exe:         app.Exe,
 			Signal:      signal,
 		}
 
@@ -54,6 +55,7 @@ func (m Model) enterKillMode(signal string) (tea.Model, tea.Cmd) {
 			target = &killTargetInfo{
 				PID:         conn.PID,
 				ProcessName: app.Name,
+				Exe:         app.Exe,
 				Port:        model.ExtractPort(conn.LocalAddr),
 				Signal:      signal,
 			}
@@ -66,9 +68,18 @@ func (m Model) enterKillMode(signal string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		conn := conns[idx]
+		// Look up the Exe from the application
+		var exe string
+		for _, app := range m.snapshot.Applications {
+			if app.Name == conn.ProcessName {
+				exe = app.Exe
+				break
+			}
+		}
 		target = &killTargetInfo{
 			PID:         conn.PID,
 			ProcessName: conn.ProcessName,
+			Exe:         exe,
 			Port:        model.ExtractPort(conn.LocalAddr),
 			Signal:      signal,
 		}
