@@ -729,29 +729,12 @@ func TestKillMode_ShiftXEntersKillModeWithSIGKILL(t *testing.T) {
 	}
 }
 
-func TestKillMode_NCancelsKillMode(t *testing.T) {
+func TestKillMode_EscCancels(t *testing.T) {
 	m := createTestModel()
 	m.killMode = true
 	m.killTarget = &killTargetInfo{PID: 100, ProcessName: "App1", Signal: "SIGTERM"}
 
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}}
-	updated, _ := m.Update(msg)
-	newModel := updated.(Model)
-
-	if newModel.killMode {
-		t.Error("killMode should be false after pressing 'n'")
-	}
-	if newModel.killTarget != nil {
-		t.Error("killTarget should be nil after cancel")
-	}
-}
-
-func TestKillMode_EscCancelsKillMode(t *testing.T) {
-	m := createTestModel()
-	m.killMode = true
-	m.killTarget = &killTargetInfo{PID: 100, ProcessName: "App1", Signal: "SIGTERM"}
-
-	msg := tea.KeyMsg{Type: tea.KeyEsc}
+	msg := tea.KeyMsg{Type: tea.KeyEscape}
 	updated, _ := m.Update(msg)
 	newModel := updated.(Model)
 
@@ -763,12 +746,39 @@ func TestKillMode_EscCancelsKillMode(t *testing.T) {
 	}
 }
 
-func TestKillMode_YConfirmsKill(t *testing.T) {
+func TestKillMode_ArrowTogglesSignal(t *testing.T) {
+	m := createTestModel()
+	m.killMode = true
+	m.killTarget = &killTargetInfo{PID: 100, ProcessName: "App1", Signal: "SIGTERM"}
+
+	// Press down to toggle to SIGKILL
+	msg := tea.KeyMsg{Type: tea.KeyDown}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if !newModel.killMode {
+		t.Error("killMode should still be true")
+	}
+	if newModel.killTarget.Signal != "SIGKILL" {
+		t.Errorf("Signal = %s, want SIGKILL after toggle", newModel.killTarget.Signal)
+	}
+
+	// Press up to toggle back to SIGTERM
+	msg = tea.KeyMsg{Type: tea.KeyUp}
+	updated, _ = newModel.Update(msg)
+	newModel = updated.(Model)
+
+	if newModel.killTarget.Signal != "SIGTERM" {
+		t.Errorf("Signal = %s, want SIGTERM after second toggle", newModel.killTarget.Signal)
+	}
+}
+
+func TestKillMode_EnterConfirmsKill(t *testing.T) {
 	m := createTestModel()
 	m.killMode = true
 	m.killTarget = &killTargetInfo{PID: 99999, ProcessName: "FakeApp", Signal: "SIGTERM"}
 
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}}
+	msg := tea.KeyMsg{Type: tea.KeyEnter}
 	updated, _ := m.Update(msg)
 	newModel := updated.(Model)
 

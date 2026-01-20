@@ -620,6 +620,7 @@ func TestTruncateString(t *testing.T) {
 
 func TestRenderKeybindings_ProcessList(t *testing.T) {
 	m := Model{
+		width: 120,
 		stack: []ViewState{{
 			Level: LevelProcessList,
 		}},
@@ -638,6 +639,7 @@ func TestRenderKeybindings_ProcessList(t *testing.T) {
 
 func TestRenderKeybindings_Connections(t *testing.T) {
 	m := Model{
+		width: 120,
 		stack: []ViewState{{
 			Level: LevelConnections,
 		}},
@@ -802,6 +804,7 @@ func TestRenderConnectionsList_HeaderContent(t *testing.T) {
 
 func TestRenderFooter_ContainsBothRows(t *testing.T) {
 	m := Model{
+		width:           120,
 		refreshInterval: 2 * time.Second,
 		stack: []ViewState{{
 			Level: LevelProcessList,
@@ -814,7 +817,7 @@ func TestRenderFooter_ContainsBothRows(t *testing.T) {
 	if !strings.Contains(result, "PROCESSES") {
 		t.Error("Footer should contain 'PROCESSES' breadcrumb")
 	}
-	// Should contain keybindings (row 2)
+	// Should contain keybindings (row 2) - minimal style lowercase
 	if !strings.Contains(result, "help") {
 		t.Error("Footer should contain 'help' keybinding")
 	}
@@ -825,7 +828,7 @@ func TestRenderFooter_ContainsBothRows(t *testing.T) {
 
 // Tests for kill mode UI rendering
 
-func TestRenderFooter_KillMode(t *testing.T) {
+func TestRenderKillModalContent(t *testing.T) {
 	m := Model{
 		killMode: true,
 		killTarget: &killTargetInfo{
@@ -838,20 +841,20 @@ func TestRenderFooter_KillMode(t *testing.T) {
 		}},
 	}
 
-	result := m.renderFooter()
+	result := m.renderKillModalContent()
 
-	// Should show kill confirmation prompt
-	if !strings.Contains(result, "Kill PID 12345") {
-		t.Error("Footer should contain kill PID")
+	// Should show kill confirmation in modal
+	if !strings.Contains(result, "12345") {
+		t.Error("Kill modal should contain PID")
 	}
 	if !strings.Contains(result, "TestApp") {
-		t.Error("Footer should contain process name in kill prompt")
+		t.Error("Kill modal should contain process name")
 	}
 	if !strings.Contains(result, "SIGTERM") {
-		t.Error("Footer should contain signal in kill prompt")
+		t.Error("Kill modal should contain signal")
 	}
-	if !strings.Contains(result, "[y/n]") {
-		t.Error("Footer should contain [y/n] confirmation")
+	if !strings.Contains(result, "Confirm") {
+		t.Error("Kill modal should contain confirmation option")
 	}
 }
 
@@ -895,6 +898,7 @@ func TestRenderFooter_KillResultExpired(t *testing.T) {
 
 func TestRenderKeybindings_KillMode(t *testing.T) {
 	m := Model{
+		width:    120,
 		killMode: true,
 		stack: []ViewState{{
 			Level: LevelProcessList,
@@ -903,10 +907,7 @@ func TestRenderKeybindings_KillMode(t *testing.T) {
 
 	result := m.renderKeybindingsText()
 
-	// Kill mode keybindings (now uses "KILL" group label, "confirm", "cancel")
-	if !strings.Contains(result, "KILL") {
-		t.Error("Keybindings should contain 'KILL' label")
-	}
+	// Kill mode keybindings
 	if !strings.Contains(result, "confirm") {
 		t.Error("Keybindings should contain 'confirm'")
 	}
@@ -917,6 +918,7 @@ func TestRenderKeybindings_KillMode(t *testing.T) {
 
 func TestRenderKeybindings_ContainsKillKey(t *testing.T) {
 	m := Model{
+		width: 120,
 		stack: []ViewState{{
 			Level: LevelProcessList,
 		}},
@@ -924,7 +926,7 @@ func TestRenderKeybindings_ContainsKillKey(t *testing.T) {
 
 	result := m.renderKeybindingsText()
 
-	// Process list should show x/X for kill
+	// Process list should show kill
 	if !strings.Contains(result, "kill") {
 		t.Error("Keybindings should contain 'kill'")
 	}
@@ -1429,27 +1431,28 @@ func TestSplitLines_MultipleLines(t *testing.T) {
 
 // Tests for footer display priority
 
-func TestRenderFooter_PriorityKillOverResult(t *testing.T) {
+func TestRenderKillModalContent_MultiPID(t *testing.T) {
 	m := Model{
 		killMode: true,
 		killTarget: &killTargetInfo{
-			PID:         999,
-			ProcessName: "KillMe",
-			Signal:      "SIGTERM",
+			PIDs:        []int32{111, 222, 333},
+			ProcessName: "MultiProcess",
+			Signal:      "SIGKILL",
 		},
-		killResult:   "Some old result",
-		killResultAt: time.Now(),
-		stack:        []ViewState{{Level: LevelProcessList}},
+		stack: []ViewState{{Level: LevelProcessList}},
 	}
 
-	result := m.renderFooter()
+	result := m.renderKillModalContent()
 
-	// Kill mode should take precedence over result
-	if !strings.Contains(result, "Kill PID 999") {
-		t.Error("Kill mode should show kill prompt, not result")
+	// Should show multi-process kill prompt
+	if !strings.Contains(result, "3 processes") {
+		t.Error("Kill modal should mention multiple processes")
 	}
-	if strings.Contains(result, "Some old result") {
-		t.Error("Kill result should not appear when kill mode is active")
+	if !strings.Contains(result, "MultiProcess") {
+		t.Error("Kill modal should contain process name")
+	}
+	if !strings.Contains(result, "SIGKILL") {
+		t.Error("Kill modal should contain signal")
 	}
 }
 
