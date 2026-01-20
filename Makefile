@@ -1,7 +1,9 @@
 .PHONY: build test fmt lint run clean security
 
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+
 build:
-	go build -o bin/netmon ./cmd/netmon
+	go build -ldflags="-X main.Version=$(VERSION)" -o bin/netmon ./cmd/netmon
 
 test:
 	go test ./...

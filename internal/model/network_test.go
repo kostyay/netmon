@@ -192,3 +192,201 @@ func TestApplicationStruct(t *testing.T) {
 		t.Errorf("PIDs length = %d, want 2", len(app.PIDs))
 	}
 }
+
+// Tests for SelectionID helpers
+
+func TestSelectionIDFromProcess(t *testing.T) {
+	id := SelectionIDFromProcess("TestApp")
+
+	if id.ProcessName != "TestApp" {
+		t.Errorf("ProcessName = %q, want 'TestApp'", id.ProcessName)
+	}
+	if id.ConnectionKey != nil {
+		t.Error("ConnectionKey should be nil for process selection")
+	}
+}
+
+func TestSelectionIDFromProcess_EmptyName(t *testing.T) {
+	id := SelectionIDFromProcess("")
+
+	if id.ProcessName != "" {
+		t.Errorf("ProcessName = %q, want ''", id.ProcessName)
+	}
+}
+
+func TestSelectionIDFromConnection(t *testing.T) {
+	id := SelectionIDFromConnection("TestApp", "127.0.0.1:80", "10.0.0.1:443")
+
+	if id.ProcessName != "TestApp" {
+		t.Errorf("ProcessName = %q, want 'TestApp'", id.ProcessName)
+	}
+	if id.ConnectionKey == nil {
+		t.Fatal("ConnectionKey should not be nil")
+	}
+	if id.ConnectionKey.ProcessName != "TestApp" {
+		t.Errorf("ConnectionKey.ProcessName = %q, want 'TestApp'", id.ConnectionKey.ProcessName)
+	}
+	if id.ConnectionKey.LocalAddr != "127.0.0.1:80" {
+		t.Errorf("ConnectionKey.LocalAddr = %q, want '127.0.0.1:80'", id.ConnectionKey.LocalAddr)
+	}
+	if id.ConnectionKey.RemoteAddr != "10.0.0.1:443" {
+		t.Errorf("ConnectionKey.RemoteAddr = %q, want '10.0.0.1:443'", id.ConnectionKey.RemoteAddr)
+	}
+}
+
+func TestSelectionIDFromConnection_EmptyFields(t *testing.T) {
+	id := SelectionIDFromConnection("", "", "")
+
+	if id.ProcessName != "" {
+		t.Errorf("ProcessName = %q, want ''", id.ProcessName)
+	}
+	if id.ConnectionKey == nil {
+		t.Fatal("ConnectionKey should not be nil even with empty fields")
+	}
+}
+
+// Tests for ExtractPort
+
+func TestExtractPort_ValidIPv4(t *testing.T) {
+	port := ExtractPort("127.0.0.1:8080")
+	if port != 8080 {
+		t.Errorf("ExtractPort('127.0.0.1:8080') = %d, want 8080", port)
+	}
+}
+
+func TestExtractPort_ValidIPv6(t *testing.T) {
+	port := ExtractPort("[::1]:443")
+	if port != 443 {
+		t.Errorf("ExtractPort('[::1]:443') = %d, want 443", port)
+	}
+}
+
+func TestExtractPort_NoPort(t *testing.T) {
+	port := ExtractPort("127.0.0.1")
+	if port != 0 {
+		t.Errorf("ExtractPort('127.0.0.1') = %d, want 0", port)
+	}
+}
+
+func TestExtractPort_Asterisk(t *testing.T) {
+	port := ExtractPort("*:80")
+	if port != 80 {
+		t.Errorf("ExtractPort('*:80') = %d, want 80", port)
+	}
+}
+
+func TestExtractPort_EmptyString(t *testing.T) {
+	port := ExtractPort("")
+	if port != 0 {
+		t.Errorf("ExtractPort('') = %d, want 0", port)
+	}
+}
+
+func TestExtractPort_InvalidPort(t *testing.T) {
+	port := ExtractPort("127.0.0.1:abc")
+	if port != 0 {
+		t.Errorf("ExtractPort('127.0.0.1:abc') = %d, want 0", port)
+	}
+}
+
+func TestExtractPort_OnlyColon(t *testing.T) {
+	port := ExtractPort(":")
+	if port != 0 {
+		t.Errorf("ExtractPort(':') = %d, want 0", port)
+	}
+}
+
+func TestExtractPort_TrailingColon(t *testing.T) {
+	port := ExtractPort("127.0.0.1:")
+	if port != 0 {
+		t.Errorf("ExtractPort('127.0.0.1:') = %d, want 0", port)
+	}
+}
+
+// Tests for ConnectionKey
+
+func TestConnectionKey_Struct(t *testing.T) {
+	key := ConnectionKey{
+		ProcessName: "App",
+		LocalAddr:   "127.0.0.1:80",
+		RemoteAddr:  "10.0.0.1:443",
+	}
+
+	if key.ProcessName != "App" {
+		t.Errorf("ProcessName = %q, want 'App'", key.ProcessName)
+	}
+	if key.LocalAddr != "127.0.0.1:80" {
+		t.Errorf("LocalAddr = %q, want '127.0.0.1:80'", key.LocalAddr)
+	}
+	if key.RemoteAddr != "10.0.0.1:443" {
+		t.Errorf("RemoteAddr = %q, want '10.0.0.1:443'", key.RemoteAddr)
+	}
+}
+
+func TestConnectionKey_Equality(t *testing.T) {
+	key1 := ConnectionKey{ProcessName: "App", LocalAddr: "127.0.0.1:80", RemoteAddr: "10.0.0.1:443"}
+	key2 := ConnectionKey{ProcessName: "App", LocalAddr: "127.0.0.1:80", RemoteAddr: "10.0.0.1:443"}
+	key3 := ConnectionKey{ProcessName: "App", LocalAddr: "127.0.0.1:81", RemoteAddr: "10.0.0.1:443"}
+
+	if key1 != key2 {
+		t.Error("Identical ConnectionKeys should be equal")
+	}
+	if key1 == key3 {
+		t.Error("Different ConnectionKeys should not be equal")
+	}
+}
+
+// Tests for NetIOStats
+
+func TestNetIOStats_Struct(t *testing.T) {
+	now := time.Now()
+	stats := NetIOStats{
+		BytesSent: 1024,
+		BytesRecv: 2048,
+		UpdatedAt: now,
+	}
+
+	if stats.BytesSent != 1024 {
+		t.Errorf("BytesSent = %d, want 1024", stats.BytesSent)
+	}
+	if stats.BytesRecv != 2048 {
+		t.Errorf("BytesRecv = %d, want 2048", stats.BytesRecv)
+	}
+	if stats.UpdatedAt != now {
+		t.Error("UpdatedAt should match")
+	}
+}
+
+// Tests for Protocol constants
+
+func TestProtocolConstants(t *testing.T) {
+	if ProtocolTCP != "TCP" {
+		t.Errorf("ProtocolTCP = %q, want 'TCP'", ProtocolTCP)
+	}
+	if ProtocolUDP != "UDP" {
+		t.Errorf("ProtocolUDP = %q, want 'UDP'", ProtocolUDP)
+	}
+	if ProtocolUnknown != "UNK" {
+		t.Errorf("ProtocolUnknown = %q, want 'UNK'", ProtocolUnknown)
+	}
+}
+
+// Tests for ConnectionState constants
+
+func TestConnectionStateConstants(t *testing.T) {
+	if StateEstablished != "ESTABLISHED" {
+		t.Errorf("StateEstablished = %q, want 'ESTABLISHED'", StateEstablished)
+	}
+	if StateListen != "LISTEN" {
+		t.Errorf("StateListen = %q, want 'LISTEN'", StateListen)
+	}
+	if StateTimeWait != "TIME_WAIT" {
+		t.Errorf("StateTimeWait = %q, want 'TIME_WAIT'", StateTimeWait)
+	}
+	if StateCloseWait != "CLOSE_WAIT" {
+		t.Errorf("StateCloseWait = %q, want 'CLOSE_WAIT'", StateCloseWait)
+	}
+	if StateNone != "-" {
+		t.Errorf("StateNone = %q, want '-'", StateNone)
+	}
+}
