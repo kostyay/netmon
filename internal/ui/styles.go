@@ -28,7 +28,6 @@ func FooterKeyStyle() lipgloss.Style {
 		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Footer.KeyFgColor))
 }
 
-
 // FooterDescStyle returns the style for key descriptions in footer.
 func FooterDescStyle() lipgloss.Style {
 	return lipgloss.NewStyle().

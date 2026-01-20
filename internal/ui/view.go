@@ -232,19 +232,7 @@ func (m Model) View() string {
 		return m.overlayModal(baseContent, m.renderSettingsModalContent(), "Settings", 44)
 	}
 	if m.killMode && m.killTarget != nil {
-		// Calculate modal width based on path length, max 70% of screen
-		modalWidth := 50
-		if m.killTarget.Exe != "" {
-			// Path line: "  Path:    " (11 chars) + path + padding
-			pathWidth := 11 + len(m.killTarget.Exe) + 4
-			if pathWidth > modalWidth {
-				modalWidth = pathWidth
-			}
-		}
-		maxWidth := m.width * 70 / 100
-		if modalWidth > maxWidth {
-			modalWidth = maxWidth
-		}
+		modalWidth := m.killModalWidth()
 		return m.overlayDangerModal(baseContent, m.renderKillModalContent(), "Kill Process", modalWidth)
 	}
 
@@ -1119,6 +1107,24 @@ func (m Model) overlayModalWithRenderer(background, content, title string, modal
 	return strings.Join(bgLines[:m.height], "\n")
 }
 
+// killModalWidth calculates the appropriate width for the kill modal.
+// Adapts to path length, capped at 70% of screen width.
+func (m Model) killModalWidth() int {
+	const minWidth = 50
+	const pathPrefix = 15 // "  Path:    " + padding
+
+	width := minWidth
+	if m.killTarget != nil && m.killTarget.Exe != "" {
+		if pathWidth := pathPrefix + len(m.killTarget.Exe); pathWidth > width {
+			width = pathWidth
+		}
+	}
+	if maxWidth := m.width * 70 / 100; width > maxWidth {
+		width = maxWidth
+	}
+	return width
+}
+
 // renderKillModalContent returns the kill confirmation modal content.
 func (m Model) renderKillModalContent() string {
 	if m.killTarget == nil {
@@ -1127,50 +1133,53 @@ func (m Model) renderKillModalContent() string {
 
 	dangerStyle := ErrorStyle()
 	descStyle := FooterDescStyle()
+	dimStyle := DimmedStyle()
 
 	var lines []string
-
-	// Warning icon and message
 	lines = append(lines, "")
 
-	if len(m.killTarget.PIDs) > 1 {
+	// Title and PID info
+	multiPID := len(m.killTarget.PIDs) > 1
+	if multiPID {
 		lines = append(lines, dangerStyle.Render(fmt.Sprintf("  Kill %d processes?", len(m.killTarget.PIDs))))
-		lines = append(lines, "")
-		lines = append(lines, descStyle.Render(fmt.Sprintf("  Process: %s", m.killTarget.ProcessName)))
-		if m.killTarget.Exe != "" {
-			lines = append(lines, DimmedStyle().Render(fmt.Sprintf("  Path:    %s", m.killTarget.Exe)))
-		}
-		lines = append(lines, descStyle.Render(fmt.Sprintf("  PIDs:    %s", formatPIDList(m.killTarget.PIDs))))
 	} else {
 		lines = append(lines, dangerStyle.Render("  Kill this process?"))
-		lines = append(lines, "")
-		lines = append(lines, descStyle.Render(fmt.Sprintf("  Process: %s", m.killTarget.ProcessName)))
-		if m.killTarget.Exe != "" {
-			lines = append(lines, DimmedStyle().Render(fmt.Sprintf("  Path:    %s", m.killTarget.Exe)))
-		}
+	}
+	lines = append(lines, "")
+
+	// Process info (shared for both cases)
+	lines = append(lines, descStyle.Render(fmt.Sprintf("  Process: %s", m.killTarget.ProcessName)))
+	if m.killTarget.Exe != "" {
+		lines = append(lines, dimStyle.Render(fmt.Sprintf("  Path:    %s", m.killTarget.Exe)))
+	}
+	if multiPID {
+		lines = append(lines, descStyle.Render(fmt.Sprintf("  PIDs:    %s", formatPIDList(m.killTarget.PIDs))))
+	} else {
 		lines = append(lines, descStyle.Render(fmt.Sprintf("  PID:     %d", m.killTarget.PID)))
 	}
 
 	// Signal radio options
 	lines = append(lines, "")
 	termSelected := m.killTarget.Signal == "SIGTERM"
-	if termSelected {
-		lines = append(lines, "  "+dangerStyle.Render("(●)")+" "+descStyle.Render("SIGTERM")+"  "+descStyle.Render("graceful"))
-		lines = append(lines, "  "+descStyle.Render("( ) SIGKILL")+"  "+DimmedStyle().Render("force"))
-	} else {
-		lines = append(lines, "  "+descStyle.Render("( ) SIGTERM")+"  "+DimmedStyle().Render("graceful"))
-		lines = append(lines, "  "+dangerStyle.Render("(●)")+" "+descStyle.Render("SIGKILL")+"  "+descStyle.Render("force"))
-	}
+	lines = append(lines, m.renderSignalOption("SIGTERM", "graceful", termSelected, dangerStyle, descStyle, dimStyle))
+	lines = append(lines, m.renderSignalOption("SIGKILL", "force", !termSelected, dangerStyle, descStyle, dimStyle))
 
+	// Footer keybindings
 	lines = append(lines, "")
-
-	// Footer keybindings - all red
 	footer := dangerStyle.Render("↵") + descStyle.Render(" Confirm  ") +
 		dangerStyle.Render("Esc") + descStyle.Render(" Cancel  ") +
 		dangerStyle.Render("↑↓") + descStyle.Render(" Signal")
 	lines = append(lines, "  "+footer)
 
 	return strings.Join(lines, "\n")
+}
+
+// renderSignalOption renders a radio button option for signal selection.
+func (m Model) renderSignalOption(signal, desc string, selected bool, dangerStyle, descStyle, dimStyle lipgloss.Style) string {
+	if selected {
+		return "  " + dangerStyle.Render("(●)") + " " + descStyle.Render(signal) + "  " + descStyle.Render(desc)
+	}
+	return "  " + descStyle.Render("( ) "+signal) + "  " + dimStyle.Render(desc)
 }
 
 // stripAnsi removes ANSI escape codes from a string.
