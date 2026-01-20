@@ -150,6 +150,10 @@ Press `v` to see all connections in a flat list:
 └─────────────────────────────────────────────────────────────┘
 ```
 
+## Status Bar
+
+Header displays: live indicator (◉), connection count, TX/RX totals, refresh rate, update notifications.
+
 ## Settings
 
 Press `S` to configure (persisted to `~/.config/netmon/settings.yaml`):
@@ -157,6 +161,7 @@ Press `S` to configure (persisted to `~/.config/netmon/settings.yaml`):
 - **DNS Resolution** — Resolve IPs to hostnames
 - **Service Names** — Show port names (443 → https)
 - **Highlight Changes** — Flash new/removed connections
+- **Animations** — Toggle live indicator pulse
 
 ## Search & Filter
 
@@ -202,12 +207,19 @@ done
 
 ## Theming
 
-Custom theme at `~/.config/netmon/skin.yaml`. See `skins/dracula.yaml` for format.
+Industrial theme by default. Custom theme at `~/.config/netmon/skin.yaml`. See `skins/dracula.yaml` for format.
 
 ## Requirements
 
 - macOS (Darwin)
 - Go 1.25+
+
+## Exit Codes
+
+| Code | Condition |
+|------|-----------|
+| 0 | Normal exit |
+| 1 | Invalid port, PID not found, conflicting flags |
 
 ## License
 

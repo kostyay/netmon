@@ -57,7 +57,7 @@ func readProcNetDev(pid int32) (uint64, uint64) {
 	if err != nil {
 		return 0, 0
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var totalRecv, totalSent uint64
 	scanner := bufio.NewScanner(f)
