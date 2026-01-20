@@ -1,4 +1,4 @@
-.PHONY: build test fmt lint run clean security
+.PHONY: build test fmt lint run clean security security-full
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
@@ -26,3 +26,7 @@ security:
 	gosec ./...
 	trufflehog git file://. --only-verified --fail
 	gitleaks detect --source . -v
+
+security-full:
+	gitleaks detect --source . -v --log-opts="--all"
+	trufflehog git file://. --no-verification
