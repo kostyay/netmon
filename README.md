@@ -97,10 +97,18 @@ netmon | grep ESTABLISHED        # Piped = JSON
 
 | Key | Action |
 |-----|--------|
-| `x` | Kill process (SIGTERM) |
-| `X` | Force kill (SIGKILL) |
+| `x` | Kill process (opens modal, SIGTERM default) |
+| `X` | Force kill (opens modal, SIGKILL default) |
 | `+` `=` | Faster refresh (min 500ms) |
 | `-` `_` | Slower refresh (max 10s) |
+
+### Kill Modal
+
+| Key | Action |
+|-----|--------|
+| `↑` `↓` `Tab` | Toggle SIGTERM / SIGKILL |
+| `Enter` | Confirm kill |
+| `Esc` | Cancel |
 
 ### Sort Mode
 
