@@ -192,7 +192,7 @@ func renderFrameWithColors(content, title string, width, height int, borderColor
 
 	contentStyle := lipgloss.NewStyle().
 		Width(innerWidth).
-		Height(height - 2).
+		Height(height-2).
 		Padding(0, 1)
 
 	styledContent := contentStyle.Render(content)
