@@ -90,12 +90,23 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Kill mode intercepts all keys
 		if m.killMode {
-			if matchKey(key, KeyConfirmYes) || key == "Y" {
+			if matchKey(key, KeyEnter) {
 				return m.executeKill()
 			}
-			if matchKey(key, KeyConfirmNo, KeyEsc) || key == "N" {
+			if matchKey(key, KeyEsc) {
 				m.killMode = false
 				m.killTarget = nil
+				return m, nil
+			}
+			// Toggle signal with up/down/tab
+			if matchKey(key, KeyUp, KeyUpAlt, KeyDown, KeyDownAlt) || key == "tab" {
+				if m.killTarget != nil {
+					if m.killTarget.Signal == "SIGTERM" {
+						m.killTarget.Signal = "SIGKILL"
+					} else {
+						m.killTarget.Signal = "SIGTERM"
+					}
+				}
 				return m, nil
 			}
 			return m, nil // Ignore other keys in kill mode

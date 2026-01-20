@@ -231,6 +231,22 @@ func (m Model) View() string {
 	if m.settingsMode {
 		return m.overlayModal(baseContent, m.renderSettingsModalContent(), "Settings", 44)
 	}
+	if m.killMode && m.killTarget != nil {
+		// Calculate modal width based on path length, max 70% of screen
+		modalWidth := 50
+		if m.killTarget.Exe != "" {
+			// Path line: "  Path:    " (11 chars) + path + padding
+			pathWidth := 11 + len(m.killTarget.Exe) + 4
+			if pathWidth > modalWidth {
+				modalWidth = pathWidth
+			}
+		}
+		maxWidth := m.width * 70 / 100
+		if modalWidth > maxWidth {
+			modalWidth = maxWidth
+		}
+		return m.overlayDangerModal(baseContent, m.renderKillModalContent(), "Kill Process", modalWidth)
+	}
 
 	return baseContent
 }
@@ -356,18 +372,8 @@ func (m Model) renderFooter() string {
 	var b strings.Builder
 	statusStyle := StatusStyle()
 
-	// Row 1: Status line (kill mode, result, search, or breadcrumbs)
-	if m.killMode && m.killTarget != nil {
-		var prompt string
-		if len(m.killTarget.PIDs) > 1 {
-			prompt = fmt.Sprintf("Kill %d PIDs of %s with %s? [y/n]",
-				len(m.killTarget.PIDs), m.killTarget.ProcessName, m.killTarget.Signal)
-		} else {
-			prompt = fmt.Sprintf("Kill PID %d (%s) with %s? [y/n]",
-				m.killTarget.PID, m.killTarget.ProcessName, m.killTarget.Signal)
-		}
-		b.WriteString(ErrorStyle().Width(m.width).Render(prompt))
-	} else if m.killResult != "" && time.Since(m.killResultAt) < 2*time.Second {
+	// Row 1: Status line (result, search, or breadcrumbs)
+	if m.killResult != "" && time.Since(m.killResultAt) < 2*time.Second {
 		b.WriteString(statusStyle.Width(m.width).Render(m.killResult))
 	} else if m.searchMode {
 		b.WriteString(statusStyle.Width(m.width).Render(fmt.Sprintf("/%s█", m.searchQuery)))
@@ -387,71 +393,83 @@ func (m Model) renderFooter() string {
 	return b.String()
 }
 
-// renderKeybindingsText returns the keybindings text with grouped styling.
+// renderKeybindingsText returns keybindings in modern minimal style.
+// Clean keys with soft separators, no backgrounds, natural flow.
 func (m Model) renderKeybindingsText() string {
-	keyStyle := FooterKeyStyle()
-	descStyle := FooterDescStyle()
-	groupStyle := FooterGroupStyle()
-
 	view := m.CurrentView()
 	if view == nil {
 		return ""
 	}
 
-	// Kill mode keybindings
+	keyStyle := FooterKeyStyle()
+	descStyle := FooterDescStyle()
+	sepStyle := FooterDescStyle()
+
+	// Helper to format a key-label pair
+	btn := func(key, label string) string {
+		return keyStyle.Render(key) + " " + descStyle.Render(label)
+	}
+
+	sep := sepStyle.Render("  ·  ")
+
+	var parts []string
+
 	if m.killMode {
-		return groupStyle.Render("KILL") + "  " +
-			keyStyle.Render("y") + descStyle.Render(" confirm") + "  " +
-			keyStyle.Render("n") + descStyle.Render("/") + keyStyle.Render("esc") + descStyle.Render(" cancel")
+		parts = []string{
+			btn("↵", "confirm"),
+			btn("↑↓", "signal"),
+			btn("esc", "cancel"),
+		}
+	} else if view.SortMode {
+		parts = []string{
+			btn("←→", "column"),
+			btn("↵", "apply"),
+			btn("esc", "cancel"),
+		}
+	} else if m.searchMode {
+		parts = []string{
+			btn("↵", "apply"),
+			btn("esc", "cancel"),
+		}
+	} else {
+		// Normal mode - contextual keys
+		switch view.Level {
+		case LevelProcessList:
+			parts = []string{
+				btn("↵", "drill"),
+				btn("/", "search"),
+				btn("s", "sort"),
+				btn("v", "flat"),
+				btn("x", "kill"),
+				btn("S", "settings"),
+				btn("?", "help"),
+				btn("q", "quit"),
+			}
+		case LevelConnections:
+			parts = []string{
+				btn("esc", "back"),
+				btn("/", "search"),
+				btn("s", "sort"),
+				btn("v", "flat"),
+				btn("x", "kill"),
+				btn("S", "settings"),
+				btn("?", "help"),
+				btn("q", "quit"),
+			}
+		case LevelAllConnections:
+			parts = []string{
+				btn("/", "search"),
+				btn("s", "sort"),
+				btn("v", "grouped"),
+				btn("x", "kill"),
+				btn("S", "settings"),
+				btn("?", "help"),
+				btn("q", "quit"),
+			}
+		}
 	}
 
-	// Sort mode keybindings
-	if view.SortMode {
-		return groupStyle.Render("SORT") + "  " +
-			keyStyle.Render("←→") + descStyle.Render(" column") + "  " +
-			keyStyle.Render("enter") + descStyle.Render(" apply") + "  " +
-			keyStyle.Render("esc") + descStyle.Render(" cancel")
-	}
-
-	// Search mode keybindings
-	if m.searchMode {
-		return groupStyle.Render("SEARCH") + "  " +
-			keyStyle.Render("enter") + descStyle.Render(" apply") + "  " +
-			keyStyle.Render("esc") + descStyle.Render(" cancel")
-	}
-
-	// Build grouped keybindings: NAV │ ACTION │ VIEW │ OTHER
-	nav := keyStyle.Render("↑↓") + descStyle.Render(" nav") + "  " +
-		keyStyle.Render("pgup/dn") + descStyle.Render(" page")
-
-	var action string
-	switch view.Level {
-	case LevelProcessList:
-		action = keyStyle.Render("enter") + descStyle.Render(" drill") + "  " +
-			keyStyle.Render("x") + descStyle.Render("/") + keyStyle.Render("X") + descStyle.Render(" kill")
-	case LevelConnections:
-		action = keyStyle.Render("esc") + descStyle.Render(" back") + "  " +
-			keyStyle.Render("x") + descStyle.Render("/") + keyStyle.Render("X") + descStyle.Render(" kill")
-	case LevelAllConnections:
-		action = keyStyle.Render("x") + descStyle.Render("/") + keyStyle.Render("X") + descStyle.Render(" kill")
-	}
-
-	viewToggle := ""
-	switch view.Level {
-	case LevelProcessList, LevelConnections:
-		viewToggle = keyStyle.Render("v") + descStyle.Render(" flat")
-	case LevelAllConnections:
-		viewToggle = keyStyle.Render("v") + descStyle.Render(" grouped")
-	}
-
-	other := keyStyle.Render("/") + descStyle.Render(" search") + "  " +
-		keyStyle.Render("s") + descStyle.Render(" sort") + "  " +
-		keyStyle.Render("S") + descStyle.Render(" settings") + "  " +
-		keyStyle.Render("?") + descStyle.Render(" help") + "  " +
-		keyStyle.Render("q") + descStyle.Render(" quit")
-
-	sep := descStyle.Render(" │ ")
-	return nav + sep + action + sep + viewToggle + sep + other
+	return strings.Join(parts, sep)
 }
 
 // currentFilter returns the active filter string, preferring searchQuery when in search mode.
@@ -1054,38 +1072,42 @@ func (m Model) cursorLinePosition() int {
 
 // overlayModal renders a modal on top of background content with dimmed backdrop.
 func (m Model) overlayModal(background, content, title string, modalWidth int) string {
+	return m.overlayModalWithRenderer(background, content, title, modalWidth, RenderFrameWithTitle)
+}
+
+// overlayDangerModal renders a danger-styled modal (red borders) on top of background content.
+func (m Model) overlayDangerModal(background, content, title string, modalWidth int) string {
+	return m.overlayModalWithRenderer(background, content, title, modalWidth, RenderDangerFrameWithTitle)
+}
+
+// overlayModalWithRenderer renders a modal using the provided frame renderer.
+func (m Model) overlayModalWithRenderer(background, content, title string, modalWidth int, frameRenderer func(string, string, int, int) string) string {
 	if m.width < modalWidth+4 {
 		modalWidth = m.width - 4
 	}
 
 	contentLines := strings.Split(content, "\n")
-	modalHeight := len(contentLines) + 5 // content + top border + separator + bottom border + padding
+	modalHeight := len(contentLines) + 4
 
-	framedModal := RenderFrameWithTitle(content, title, modalWidth, modalHeight)
+	framedModal := frameRenderer(content, title, modalWidth, modalHeight)
 	modalLines := strings.Split(framedModal, "\n")
 
-	// Calculate modal position
 	leftPad := max((m.width-modalWidth-4)/2, 0)
 	topPad := max((m.height-modalHeight)/2, 0)
 
-	// Split background into lines and dim them
 	bgLines := strings.Split(background, "\n")
-	// Ensure we have enough lines
 	for len(bgLines) < m.height {
 		bgLines = append(bgLines, "")
 	}
 
-	// Dim all background lines
 	dimStyle := DimmedStyle()
 	for i := range bgLines {
 		bgLines[i] = dimStyle.Render(stripAnsi(bgLines[i]))
 	}
 
-	// Overlay modal onto background
 	for i, modalLine := range modalLines {
 		bgIdx := topPad + i
 		if bgIdx >= 0 && bgIdx < len(bgLines) {
-			// Build the line: dimmed left + modal + dimmed right
 			leftBg := ""
 			if leftPad > 0 {
 				leftBg = dimStyle.Render(strings.Repeat(" ", leftPad))
@@ -1095,6 +1117,60 @@ func (m Model) overlayModal(background, content, title string, modalWidth int) s
 	}
 
 	return strings.Join(bgLines[:m.height], "\n")
+}
+
+// renderKillModalContent returns the kill confirmation modal content.
+func (m Model) renderKillModalContent() string {
+	if m.killTarget == nil {
+		return ""
+	}
+
+	dangerStyle := ErrorStyle()
+	descStyle := FooterDescStyle()
+
+	var lines []string
+
+	// Warning icon and message
+	lines = append(lines, "")
+
+	if len(m.killTarget.PIDs) > 1 {
+		lines = append(lines, dangerStyle.Render(fmt.Sprintf("  Kill %d processes?", len(m.killTarget.PIDs))))
+		lines = append(lines, "")
+		lines = append(lines, descStyle.Render(fmt.Sprintf("  Process: %s", m.killTarget.ProcessName)))
+		if m.killTarget.Exe != "" {
+			lines = append(lines, DimmedStyle().Render(fmt.Sprintf("  Path:    %s", m.killTarget.Exe)))
+		}
+		lines = append(lines, descStyle.Render(fmt.Sprintf("  PIDs:    %s", formatPIDList(m.killTarget.PIDs))))
+	} else {
+		lines = append(lines, dangerStyle.Render("  Kill this process?"))
+		lines = append(lines, "")
+		lines = append(lines, descStyle.Render(fmt.Sprintf("  Process: %s", m.killTarget.ProcessName)))
+		if m.killTarget.Exe != "" {
+			lines = append(lines, DimmedStyle().Render(fmt.Sprintf("  Path:    %s", m.killTarget.Exe)))
+		}
+		lines = append(lines, descStyle.Render(fmt.Sprintf("  PID:     %d", m.killTarget.PID)))
+	}
+
+	// Signal radio options
+	lines = append(lines, "")
+	termSelected := m.killTarget.Signal == "SIGTERM"
+	if termSelected {
+		lines = append(lines, "  "+dangerStyle.Render("(●)")+" "+descStyle.Render("SIGTERM")+"  "+descStyle.Render("graceful"))
+		lines = append(lines, "  "+descStyle.Render("( ) SIGKILL")+"  "+DimmedStyle().Render("force"))
+	} else {
+		lines = append(lines, "  "+descStyle.Render("( ) SIGTERM")+"  "+DimmedStyle().Render("graceful"))
+		lines = append(lines, "  "+dangerStyle.Render("(●)")+" "+descStyle.Render("SIGKILL")+"  "+descStyle.Render("force"))
+	}
+
+	lines = append(lines, "")
+
+	// Footer keybindings - all red
+	footer := dangerStyle.Render("↵") + descStyle.Render(" Confirm  ") +
+		dangerStyle.Render("Esc") + descStyle.Render(" Cancel  ") +
+		dangerStyle.Render("↑↓") + descStyle.Render(" Signal")
+	lines = append(lines, "  "+footer)
+
+	return strings.Join(lines, "\n")
 }
 
 // stripAnsi removes ANSI escape codes from a string.
