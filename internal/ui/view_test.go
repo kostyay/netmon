@@ -28,53 +28,7 @@ func initViewportWithStack(m *Model) {
 			SelectedColumn: SortProcess,
 		}}
 	}
-}
-
-func TestFormatPIDs_Empty(t *testing.T) {
-	got := formatPIDs([]int32{})
-	if got != "" {
-		t.Errorf("formatPIDs([]) = %q, want empty string", got)
-	}
-}
-
-func TestFormatPIDs_SinglePID(t *testing.T) {
-	got := formatPIDs([]int32{1234})
-	want := "PID: 1234"
-	if got != want {
-		t.Errorf("formatPIDs([1234]) = %q, want %q", got, want)
-	}
-}
-
-func TestFormatPIDs_TwoPIDs(t *testing.T) {
-	got := formatPIDs([]int32{1234, 5678})
-	want := "PIDs: 1234, 5678"
-	if got != want {
-		t.Errorf("formatPIDs([1234, 5678]) = %q, want %q", got, want)
-	}
-}
-
-func TestFormatPIDs_ThreePIDs(t *testing.T) {
-	got := formatPIDs([]int32{100, 200, 300})
-	want := "PIDs: 100, 200, 300"
-	if got != want {
-		t.Errorf("formatPIDs([100, 200, 300]) = %q, want %q", got, want)
-	}
-}
-
-func TestFormatPIDs_ManyPIDs(t *testing.T) {
-	got := formatPIDs([]int32{100, 200, 300, 400, 500})
-	want := "PIDs: 100, 200 +3 more"
-	if got != want {
-		t.Errorf("formatPIDs([100, 200, 300, 400, 500]) = %q, want %q", got, want)
-	}
-}
-
-func TestFormatPIDs_FourPIDs(t *testing.T) {
-	got := formatPIDs([]int32{1, 2, 3, 4})
-	want := "PIDs: 1, 2 +2 more"
-	if got != want {
-		t.Errorf("formatPIDs([1, 2, 3, 4]) = %q, want %q", got, want)
-	}
+	m.updateViewportContent() // Pre-render content like Update() does
 }
 
 func TestTruncateAddr_Short(t *testing.T) {
@@ -211,8 +165,8 @@ func TestView_ContainsHeader(t *testing.T) {
 
 	view := m.View()
 
-	if !strings.Contains(view, "netmon") {
-		t.Error("View() should contain 'netmon' header")
+	if !strings.Contains(view, "NETMON") {
+		t.Error("View() should contain 'NETMON' header")
 	}
 }
 
@@ -225,8 +179,8 @@ func TestView_ContainsFooter(t *testing.T) {
 
 	view := m.View()
 
-	if !strings.Contains(view, "Quit") {
-		t.Error("View() should contain 'Quit' in footer")
+	if !strings.Contains(view, "quit") {
+		t.Error("View() should contain 'quit' in footer")
 	}
 }
 
@@ -240,8 +194,9 @@ func TestView_ContainsRefreshRate(t *testing.T) {
 
 	view := m.View()
 
-	if !strings.Contains(view, "Refresh:") {
-		t.Error("View() should contain 'Refresh:' status")
+	// Refresh rate now shown in header (e.g., "2.0s")
+	if !strings.Contains(view, "2.0s") {
+		t.Error("View() should contain '2.0s' refresh rate in header")
 	}
 }
 
@@ -255,9 +210,9 @@ func TestRenderProcessList_Empty(t *testing.T) {
 
 	result := m.renderProcessList()
 
-	// Should still have header row with column names
-	if !strings.Contains(result, "Process") {
-		t.Error("renderProcessList() with empty apps should still have header")
+	// Should show empty message when no processes
+	if !strings.Contains(result, "No processes found") {
+		t.Errorf("renderProcessList() with empty apps should show empty message, got: %s", result)
 	}
 }
 
@@ -338,6 +293,109 @@ func TestRenderConnectionsList_ProcessNotFound(t *testing.T) {
 	}
 }
 
+func TestRenderConnectionsList_FilteredByLocalAddr(t *testing.T) {
+	m := Model{
+		snapshot: &model.NetworkSnapshot{
+			Applications: []model.Application{
+				{
+					Name: "TestApp",
+					PIDs: []int32{100},
+					Connections: []model.Connection{
+						{Protocol: model.ProtocolTCP, LocalAddr: "127.0.0.1:80", RemoteAddr: "10.0.0.1:443", State: model.StateEstablished, PID: 100},
+						{Protocol: model.ProtocolTCP, LocalAddr: "192.168.1.1:8080", RemoteAddr: "10.0.0.2:443", State: model.StateEstablished, PID: 100},
+					},
+				},
+			},
+		},
+		stack: []ViewState{{
+			Level:       LevelConnections,
+			ProcessName: "TestApp",
+			Cursor:      0,
+			SortColumn:  SortLocal,
+		}},
+		activeFilter: "192.168",
+	}
+
+	result := m.renderConnectionsList()
+
+	// Should contain the filtered connection
+	if !strings.Contains(result, "192.168.1.1:8080") {
+		t.Error("renderConnectionsList() should contain filtered local addr")
+	}
+	// Should NOT contain the excluded connection
+	if strings.Contains(result, "127.0.0.1:80") {
+		t.Error("renderConnectionsList() should NOT contain excluded local addr")
+	}
+	// Should show 1 connection count
+	if !strings.Contains(result, "1 connections") {
+		t.Error("renderConnectionsList() should show filtered count")
+	}
+}
+
+func TestRenderConnectionsList_FilteredByRemoteAddr(t *testing.T) {
+	m := Model{
+		snapshot: &model.NetworkSnapshot{
+			Applications: []model.Application{
+				{
+					Name: "TestApp",
+					PIDs: []int32{100},
+					Connections: []model.Connection{
+						{Protocol: model.ProtocolTCP, LocalAddr: "127.0.0.1:80", RemoteAddr: "10.0.0.1:443", State: model.StateEstablished, PID: 100},
+						{Protocol: model.ProtocolTCP, LocalAddr: "127.0.0.1:81", RemoteAddr: "8.8.8.8:53", State: model.StateEstablished, PID: 100},
+					},
+				},
+			},
+		},
+		stack: []ViewState{{
+			Level:       LevelConnections,
+			ProcessName: "TestApp",
+			Cursor:      0,
+			SortColumn:  SortLocal,
+		}},
+		activeFilter: "8.8.8.8",
+	}
+
+	result := m.renderConnectionsList()
+
+	// Should contain the filtered connection
+	if !strings.Contains(result, "8.8.8.8:53") {
+		t.Error("renderConnectionsList() should contain filtered remote addr")
+	}
+	// Should NOT contain the excluded connection
+	if strings.Contains(result, "10.0.0.1:443") {
+		t.Error("renderConnectionsList() should NOT contain excluded remote addr")
+	}
+}
+
+func TestRenderConnectionsList_FilterNoMatches(t *testing.T) {
+	m := Model{
+		snapshot: &model.NetworkSnapshot{
+			Applications: []model.Application{
+				{
+					Name: "TestApp",
+					PIDs: []int32{100},
+					Connections: []model.Connection{
+						{Protocol: model.ProtocolTCP, LocalAddr: "127.0.0.1:80", RemoteAddr: "10.0.0.1:443", State: model.StateEstablished, PID: 100},
+					},
+				},
+			},
+		},
+		stack: []ViewState{{
+			Level:       LevelConnections,
+			ProcessName: "TestApp",
+			Cursor:      0,
+			SortColumn:  SortLocal,
+		}},
+		activeFilter: "nomatchxyz",
+	}
+
+	result := m.renderConnectionsList()
+
+	if !strings.Contains(result, "No matches for 'nomatchxyz'") {
+		t.Error("renderConnectionsList() should show 'No matches' when filter excludes all")
+	}
+}
+
 func TestRenderBreadcrumbs_ProcessList(t *testing.T) {
 	m := Model{
 		refreshInterval: 2 * time.Second,
@@ -346,11 +404,8 @@ func TestRenderBreadcrumbs_ProcessList(t *testing.T) {
 
 	result := m.renderBreadcrumbsText()
 
-	if !strings.Contains(result, "Processes") {
-		t.Error("Breadcrumbs should contain 'Processes'")
-	}
-	if !strings.Contains(result, "Refresh:") {
-		t.Error("Breadcrumbs should contain refresh rate")
+	if !strings.Contains(result, "PROCESSES") {
+		t.Error("Breadcrumbs should contain 'PROCESSES'")
 	}
 }
 
@@ -365,8 +420,8 @@ func TestRenderBreadcrumbs_ConnectionsLevel(t *testing.T) {
 
 	result := m.renderBreadcrumbsText()
 
-	if !strings.Contains(result, "Processes") {
-		t.Error("Breadcrumbs should contain 'Processes'")
+	if !strings.Contains(result, "PROCESSES") {
+		t.Error("Breadcrumbs should contain 'PROCESSES'")
 	}
 	if !strings.Contains(result, "Chrome") {
 		t.Error("Breadcrumbs should contain 'Chrome'")
@@ -426,7 +481,7 @@ func TestRenderConnectionsHeader(t *testing.T) {
 		t.Error("Header should contain 'State'")
 	}
 	// PID column removed - redundant in process detail view
-	if !strings.Contains(result, "↑") {
+	if !strings.Contains(result, "△") {
 		t.Error("Header should contain ascending sort indicator")
 	}
 }
@@ -445,7 +500,7 @@ func TestRenderConnectionsHeader_Descending(t *testing.T) {
 	widths := calculateColumnWidths(columns, 100)
 	result := m.renderConnectionsHeader(widths)
 
-	if !strings.Contains(result, "↓") {
+	if !strings.Contains(result, "▽") {
 		t.Error("Header should contain descending sort indicator")
 	}
 }
@@ -572,12 +627,12 @@ func TestRenderKeybindings_ProcessList(t *testing.T) {
 
 	result := m.renderKeybindingsText()
 
-	// Process list should show Drill-in
-	if !strings.Contains(result, "Drill-in") {
-		t.Error("Process list keybindings should contain 'Drill-in'")
+	// Process list should show drill
+	if !strings.Contains(result, "drill") {
+		t.Error("Process list keybindings should contain 'drill'")
 	}
-	if strings.Contains(result, "Back") {
-		t.Error("Process list keybindings should NOT contain 'Back'")
+	if strings.Contains(result, "back") {
+		t.Error("Process list keybindings should NOT contain 'back'")
 	}
 }
 
@@ -590,15 +645,15 @@ func TestRenderKeybindings_Connections(t *testing.T) {
 
 	result := m.renderKeybindingsText()
 
-	// Connections level should show Back and Sort
-	if !strings.Contains(result, "Back") {
-		t.Error("Connections keybindings should contain 'Back'")
+	// Connections level should show back and help
+	if !strings.Contains(result, "back") {
+		t.Error("Connections keybindings should contain 'back'")
 	}
-	if !strings.Contains(result, "Sort") {
-		t.Error("Connections keybindings should contain 'Sort'")
+	if !strings.Contains(result, "help") {
+		t.Error("Connections keybindings should contain 'help'")
 	}
-	if strings.Contains(result, "Drill-in") {
-		t.Error("Connections keybindings should NOT contain 'Drill-in'")
+	if strings.Contains(result, "drill") {
+		t.Error("Connections keybindings should NOT contain 'drill'")
 	}
 }
 
@@ -756,14 +811,902 @@ func TestRenderFooter_ContainsBothRows(t *testing.T) {
 	result := m.renderFooter()
 
 	// Should contain breadcrumbs (row 1)
-	if !strings.Contains(result, "Processes") {
-		t.Error("Footer should contain 'Processes' breadcrumb")
+	if !strings.Contains(result, "PROCESSES") {
+		t.Error("Footer should contain 'PROCESSES' breadcrumb")
 	}
 	// Should contain keybindings (row 2)
-	if !strings.Contains(result, "Navigate") {
-		t.Error("Footer should contain 'Navigate' keybinding")
+	if !strings.Contains(result, "help") {
+		t.Error("Footer should contain 'help' keybinding")
 	}
-	if !strings.Contains(result, "Quit") {
-		t.Error("Footer should contain 'Quit' keybinding")
+	if !strings.Contains(result, "quit") {
+		t.Error("Footer should contain 'quit' keybinding")
+	}
+}
+
+// Tests for kill mode UI rendering
+
+func TestRenderFooter_KillMode(t *testing.T) {
+	m := Model{
+		killMode: true,
+		killTarget: &killTargetInfo{
+			PID:         12345,
+			ProcessName: "TestApp",
+			Signal:      "SIGTERM",
+		},
+		stack: []ViewState{{
+			Level: LevelProcessList,
+		}},
+	}
+
+	result := m.renderFooter()
+
+	// Should show kill confirmation prompt
+	if !strings.Contains(result, "Kill PID 12345") {
+		t.Error("Footer should contain kill PID")
+	}
+	if !strings.Contains(result, "TestApp") {
+		t.Error("Footer should contain process name in kill prompt")
+	}
+	if !strings.Contains(result, "SIGTERM") {
+		t.Error("Footer should contain signal in kill prompt")
+	}
+	if !strings.Contains(result, "[y/n]") {
+		t.Error("Footer should contain [y/n] confirmation")
+	}
+}
+
+func TestRenderFooter_KillResult(t *testing.T) {
+	m := Model{
+		killResult:   "Killed PID 12345 (TestApp)",
+		killResultAt: time.Now(), // Recent
+		stack: []ViewState{{
+			Level: LevelProcessList,
+		}},
+	}
+
+	result := m.renderFooter()
+
+	// Should show kill result
+	if !strings.Contains(result, "Killed PID 12345") {
+		t.Error("Footer should contain kill result message")
+	}
+}
+
+func TestRenderFooter_KillResultExpired(t *testing.T) {
+	m := Model{
+		killResult:      "Killed PID 12345 (TestApp)",
+		killResultAt:    time.Now().Add(-3 * time.Second), // More than 2s ago
+		refreshInterval: 2 * time.Second,
+		stack: []ViewState{{
+			Level: LevelProcessList,
+		}},
+	}
+
+	result := m.renderFooter()
+
+	// Should NOT show expired kill result (shows breadcrumbs instead)
+	if strings.Contains(result, "Killed PID 12345") {
+		t.Error("Footer should NOT contain expired kill result message")
+	}
+	if !strings.Contains(result, "PROCESSES") {
+		t.Error("Footer should show breadcrumbs when kill result expired")
+	}
+}
+
+func TestRenderKeybindings_KillMode(t *testing.T) {
+	m := Model{
+		killMode: true,
+		stack: []ViewState{{
+			Level: LevelProcessList,
+		}},
+	}
+
+	result := m.renderKeybindingsText()
+
+	// Kill mode keybindings (now uses "KILL" group label, "confirm", "cancel")
+	if !strings.Contains(result, "KILL") {
+		t.Error("Keybindings should contain 'KILL' label")
+	}
+	if !strings.Contains(result, "confirm") {
+		t.Error("Keybindings should contain 'confirm'")
+	}
+	if !strings.Contains(result, "cancel") {
+		t.Error("Keybindings should contain 'cancel'")
+	}
+}
+
+func TestRenderKeybindings_ContainsKillKey(t *testing.T) {
+	m := Model{
+		stack: []ViewState{{
+			Level: LevelProcessList,
+		}},
+	}
+
+	result := m.renderKeybindingsText()
+
+	// Process list should show x/X for kill
+	if !strings.Contains(result, "kill") {
+		t.Error("Keybindings should contain 'kill'")
+	}
+}
+
+// Tests for viewport scrolling
+
+func TestSyncViewportScroll_NotReady(t *testing.T) {
+	m := &Model{
+		ready: false,
+		stack: []ViewState{{Level: LevelProcessList, Cursor: 5}},
+	}
+
+	// Should not panic when not ready
+	m.syncViewportScroll()
+}
+
+func TestSyncViewportScroll_CursorAboveViewport(t *testing.T) {
+	m := &Model{
+		ready: true,
+		stack: []ViewState{{Level: LevelProcessList, Cursor: 2}},
+		snapshot: &model.NetworkSnapshot{
+			Applications: make([]model.Application, 20),
+		},
+	}
+	m.viewport = viewport.New(80, 10)
+	m.viewport.SetYOffset(5) // Cursor at line 2+1=3 is above offset 5
+
+	m.syncViewportScroll()
+
+	// Viewport should scroll up to show cursor
+	if m.viewport.YOffset > 3 {
+		t.Errorf("YOffset = %d, should be <= 3 to show cursor at line 3", m.viewport.YOffset)
+	}
+}
+
+func TestSyncViewportScroll_CursorBelowViewport(t *testing.T) {
+	m := &Model{
+		ready: true,
+		stack: []ViewState{{Level: LevelProcessList, Cursor: 15}},
+		snapshot: &model.NetworkSnapshot{
+			Applications: make([]model.Application, 20),
+		},
+	}
+	m.viewport = viewport.New(80, 5)
+	// Set some content first so viewport can scroll
+	lines := make([]string, 25)
+	for i := range lines {
+		lines[i] = "line"
+	}
+	m.viewport.SetContent(strings.Join(lines, "\n"))
+	m.viewport.SetYOffset(0) // Start at top
+
+	m.syncViewportScroll()
+
+	// Viewport should scroll down to show cursor
+	// cursor line = 15 + 1 (header) = 16, viewport height = 5
+	// visible end = YOffset + Height
+	// Need: cursorLine < visibleEnd => YOffset + 5 > 16 => YOffset > 11
+	if m.viewport.YOffset < 11 {
+		t.Errorf("YOffset = %d, should be >= 11 to show cursor at line 16", m.viewport.YOffset)
+	}
+}
+
+func TestSyncViewportScroll_CursorWithinViewport(t *testing.T) {
+	m := &Model{
+		ready: true,
+		stack: []ViewState{{Level: LevelProcessList, Cursor: 3}},
+		snapshot: &model.NetworkSnapshot{
+			Applications: make([]model.Application, 20),
+		},
+	}
+	m.viewport = viewport.New(80, 10)
+	m.viewport.SetYOffset(2) // Cursor at line 4 is within range 2-11
+
+	originalOffset := m.viewport.YOffset
+	m.syncViewportScroll()
+
+	// Viewport should not change
+	if m.viewport.YOffset != originalOffset {
+		t.Errorf("YOffset changed from %d to %d, should stay same", originalOffset, m.viewport.YOffset)
+	}
+}
+
+func TestCursorLinePosition_ProcessList(t *testing.T) {
+	m := Model{
+		stack: []ViewState{{Level: LevelProcessList, Cursor: 5}},
+		snapshot: &model.NetworkSnapshot{
+			Applications: make([]model.Application, 10),
+		},
+	}
+
+	// Headers are now frozen outside viewport, so cursor position = cursor index
+	pos := m.cursorLinePosition()
+	expected := 5
+	if pos != expected {
+		t.Errorf("cursorLinePosition = %d, want %d", pos, expected)
+	}
+}
+
+func TestCursorLinePosition_ConnectionsNoExe(t *testing.T) {
+	m := Model{
+		stack: []ViewState{{
+			Level:       LevelConnections,
+			ProcessName: "TestApp",
+			Cursor:      3,
+		}},
+		snapshot: &model.NetworkSnapshot{
+			Applications: []model.Application{
+				{Name: "TestApp", Exe: ""}, // No exe path
+			},
+		},
+	}
+
+	// Headers are now frozen outside viewport, so cursor position = cursor index
+	pos := m.cursorLinePosition()
+	expected := 3
+	if pos != expected {
+		t.Errorf("cursorLinePosition = %d, want %d", pos, expected)
+	}
+}
+
+func TestCursorLinePosition_ConnectionsWithExe(t *testing.T) {
+	m := Model{
+		stack: []ViewState{{
+			Level:       LevelConnections,
+			ProcessName: "TestApp",
+			Cursor:      3,
+		}},
+		snapshot: &model.NetworkSnapshot{
+			Applications: []model.Application{
+				{Name: "TestApp", Exe: "/usr/bin/testapp"}, // Has exe path
+			},
+		},
+	}
+
+	// Headers are now frozen outside viewport, so cursor position = cursor index
+	pos := m.cursorLinePosition()
+	expected := 3
+	if pos != expected {
+		t.Errorf("cursorLinePosition = %d, want %d", pos, expected)
+	}
+}
+
+func TestCursorLinePosition_AllConnections(t *testing.T) {
+	m := Model{
+		stack: []ViewState{{Level: LevelAllConnections, Cursor: 7}},
+		snapshot: &model.NetworkSnapshot{
+			Applications: make([]model.Application, 10),
+		},
+	}
+
+	// Headers are now frozen outside viewport, so cursor position = cursor index
+	pos := m.cursorLinePosition()
+	expected := 7
+	if pos != expected {
+		t.Errorf("cursorLinePosition = %d, want %d", pos, expected)
+	}
+}
+
+// Tests for all-connections view filtering
+
+func TestRenderAllConnections_Basic(t *testing.T) {
+	m := Model{
+		snapshot: &model.NetworkSnapshot{
+			Applications: []model.Application{
+				{
+					Name: "App1",
+					PIDs: []int32{100},
+					Connections: []model.Connection{
+						{PID: 100, Protocol: "TCP", LocalAddr: "127.0.0.1:80", RemoteAddr: "10.0.0.1:443", State: "ESTABLISHED"},
+					},
+				},
+			},
+		},
+		stack: []ViewState{{
+			Level:          LevelAllConnections,
+			Cursor:         0,
+			SortColumn:     SortProcess,
+			SortAscending:  true,
+			SelectedColumn: SortProcess,
+		}},
+		dnsCache: make(map[string]string),
+		changes:  make(map[ConnectionKey]Change),
+	}
+
+	result := m.renderAllConnections()
+
+	if !strings.Contains(result, "App1") {
+		t.Error("All connections should contain process name 'App1'")
+	}
+	if !strings.Contains(result, "TCP") {
+		t.Error("All connections should contain protocol 'TCP'")
+	}
+	if !strings.Contains(result, "127.0.0.1:80") {
+		t.Error("All connections should contain local addr")
+	}
+}
+
+func TestFilteredAllConnections_ByProcessName(t *testing.T) {
+	m := Model{
+		snapshot: &model.NetworkSnapshot{
+			Applications: []model.Application{
+				{
+					Name: "Chrome",
+					PIDs: []int32{100},
+					Connections: []model.Connection{
+						{PID: 100, Protocol: "TCP", LocalAddr: "127.0.0.1:80"},
+					},
+				},
+				{
+					Name: "Firefox",
+					PIDs: []int32{200},
+					Connections: []model.Connection{
+						{PID: 200, Protocol: "TCP", LocalAddr: "127.0.0.1:81"},
+					},
+				},
+			},
+		},
+		activeFilter: "Chrome",
+		stack:        []ViewState{{Level: LevelAllConnections}},
+	}
+
+	conns := m.filteredAllConnections()
+
+	if len(conns) != 1 {
+		t.Fatalf("expected 1 connection, got %d", len(conns))
+	}
+	if conns[0].ProcessName != "Chrome" {
+		t.Errorf("expected Chrome, got %s", conns[0].ProcessName)
+	}
+}
+
+func TestFilteredAllConnections_ByPID(t *testing.T) {
+	m := Model{
+		snapshot: &model.NetworkSnapshot{
+			Applications: []model.Application{
+				{
+					Name: "App1",
+					PIDs: []int32{12345},
+					Connections: []model.Connection{
+						{PID: 12345, Protocol: "TCP", LocalAddr: "127.0.0.1:80"},
+					},
+				},
+				{
+					Name: "App2",
+					PIDs: []int32{67890},
+					Connections: []model.Connection{
+						{PID: 67890, Protocol: "TCP", LocalAddr: "127.0.0.1:81"},
+					},
+				},
+			},
+		},
+		activeFilter: "12345",
+		stack:        []ViewState{{Level: LevelAllConnections}},
+	}
+
+	conns := m.filteredAllConnections()
+
+	if len(conns) != 1 {
+		t.Fatalf("expected 1 connection, got %d", len(conns))
+	}
+	if conns[0].PID != 12345 {
+		t.Errorf("expected PID 12345, got %d", conns[0].PID)
+	}
+}
+
+func TestFilteredAllConnections_ByPort(t *testing.T) {
+	m := Model{
+		snapshot: &model.NetworkSnapshot{
+			Applications: []model.Application{
+				{
+					Name: "App1",
+					PIDs: []int32{100},
+					Connections: []model.Connection{
+						{PID: 100, Protocol: "TCP", LocalAddr: "127.0.0.1:8080", RemoteAddr: "*"},
+						{PID: 100, Protocol: "TCP", LocalAddr: "127.0.0.1:9090", RemoteAddr: "*"},
+					},
+				},
+			},
+		},
+		activeFilter: "8080",
+		stack:        []ViewState{{Level: LevelAllConnections}},
+	}
+
+	conns := m.filteredAllConnections()
+
+	if len(conns) != 1 {
+		t.Fatalf("expected 1 connection, got %d", len(conns))
+	}
+	if !strings.Contains(conns[0].LocalAddr, "8080") {
+		t.Errorf("expected port 8080, got %s", conns[0].LocalAddr)
+	}
+}
+
+func TestFilteredAllConnections_NoFilter(t *testing.T) {
+	m := Model{
+		snapshot: &model.NetworkSnapshot{
+			Applications: []model.Application{
+				{
+					Name: "App1",
+					PIDs: []int32{100},
+					Connections: []model.Connection{
+						{PID: 100, Protocol: "TCP"},
+						{PID: 100, Protocol: "UDP"},
+					},
+				},
+				{
+					Name: "App2",
+					PIDs: []int32{200},
+					Connections: []model.Connection{
+						{PID: 200, Protocol: "TCP"},
+					},
+				},
+			},
+		},
+		activeFilter: "",
+		stack:        []ViewState{{Level: LevelAllConnections}},
+	}
+
+	conns := m.filteredAllConnections()
+
+	if len(conns) != 3 {
+		t.Errorf("expected 3 connections (no filter), got %d", len(conns))
+	}
+}
+
+func TestFilteredAllConnections_NilSnapshot(t *testing.T) {
+	m := Model{
+		snapshot:     nil,
+		activeFilter: "test",
+		stack:        []ViewState{{Level: LevelAllConnections}},
+	}
+
+	conns := m.filteredAllConnections()
+
+	if conns != nil {
+		t.Errorf("expected nil for nil snapshot, got %v", conns)
+	}
+}
+
+func TestFilteredAllConnections_ByState(t *testing.T) {
+	m := Model{
+		snapshot: &model.NetworkSnapshot{
+			Applications: []model.Application{
+				{
+					Name: "App1",
+					PIDs: []int32{100},
+					Connections: []model.Connection{
+						{PID: 100, Protocol: "TCP", State: "ESTABLISHED"},
+						{PID: 100, Protocol: "TCP", State: "LISTEN"},
+					},
+				},
+			},
+		},
+		activeFilter: "LISTEN",
+		stack:        []ViewState{{Level: LevelAllConnections}},
+	}
+
+	conns := m.filteredAllConnections()
+
+	if len(conns) != 1 {
+		t.Fatalf("expected 1 connection, got %d", len(conns))
+	}
+	if string(conns[0].State) != "LISTEN" {
+		t.Errorf("expected LISTEN state, got %s", conns[0].State)
+	}
+}
+
+func TestFilteredAllConnections_ByRemoteAddr(t *testing.T) {
+	m := Model{
+		snapshot: &model.NetworkSnapshot{
+			Applications: []model.Application{
+				{
+					Name: "App1",
+					PIDs: []int32{100},
+					Connections: []model.Connection{
+						{PID: 100, Protocol: "TCP", RemoteAddr: "8.8.8.8:443"},
+						{PID: 100, Protocol: "TCP", RemoteAddr: "1.1.1.1:53"},
+					},
+				},
+			},
+		},
+		activeFilter: "8.8.8",
+		stack:        []ViewState{{Level: LevelAllConnections}},
+	}
+
+	conns := m.filteredAllConnections()
+
+	if len(conns) != 1 {
+		t.Fatalf("expected 1 connection, got %d", len(conns))
+	}
+	if !strings.Contains(conns[0].RemoteAddr, "8.8.8.8") {
+		t.Errorf("expected remote 8.8.8.8, got %s", conns[0].RemoteAddr)
+	}
+}
+
+// Tests for padRight helper
+
+func TestPadRight_Nopad(t *testing.T) {
+	got := padRight("hello", 5)
+	if got != "hello" {
+		t.Errorf("padRight('hello', 5) = %q, want %q", got, "hello")
+	}
+}
+
+func TestPadRight_AddsPadding(t *testing.T) {
+	got := padRight("hi", 5)
+	if got != "hi   " {
+		t.Errorf("padRight('hi', 5) = %q, want %q", got, "hi   ")
+	}
+}
+
+func TestPadRight_LongerThanWidth(t *testing.T) {
+	got := padRight("hello world", 5)
+	if got != "hello world" {
+		t.Errorf("padRight longer than width should not truncate, got %q", got)
+	}
+}
+
+func TestPadRight_EmptyString(t *testing.T) {
+	got := padRight("", 3)
+	if got != "   " {
+		t.Errorf("padRight('', 3) = %q, want %q", got, "   ")
+	}
+}
+
+// Tests for RenderFrameWithTitle
+
+func TestRenderFrameWithTitle_ContainsTitle(t *testing.T) {
+	result := RenderFrameWithTitle("content", "Test Title", 40, 5)
+
+	if !strings.Contains(result, "Test Title") {
+		t.Error("RenderFrameWithTitle should contain the title")
+	}
+}
+
+func TestRenderFrameWithTitle_ContainsContent(t *testing.T) {
+	result := RenderFrameWithTitle("my content here", "Title", 40, 5)
+
+	if !strings.Contains(result, "my content here") {
+		t.Error("RenderFrameWithTitle should contain the content")
+	}
+}
+
+func TestRenderFrameWithTitle_HasBorders(t *testing.T) {
+	result := RenderFrameWithTitle("content", "Title", 40, 6)
+
+	// Check for heavy box drawing characters (modal style)
+	if !strings.Contains(result, "┏") {
+		t.Error("Should contain top-left border")
+	}
+	if !strings.Contains(result, "┓") {
+		t.Error("Should contain top-right border")
+	}
+	if !strings.Contains(result, "┗") {
+		t.Error("Should contain bottom-left border")
+	}
+	if !strings.Contains(result, "┛") {
+		t.Error("Should contain bottom-right border")
+	}
+	if !strings.Contains(result, "┃") {
+		t.Error("Should contain vertical border")
+	}
+}
+
+func TestRenderFrameWithTitle_NarrowWidth(t *testing.T) {
+	// Title longer than available space
+	result := RenderFrameWithTitle("x", "Very Long Title Here", 10, 3)
+
+	// Should not panic, title gets truncated
+	if result == "" {
+		t.Error("Should render something even with narrow width")
+	}
+}
+
+// Tests for splitLines helper
+
+func TestSplitLines_Empty(t *testing.T) {
+	got := splitLines("")
+	if len(got) != 1 || got[0] != "" {
+		t.Errorf("splitLines('') = %v, want ['']", got)
+	}
+}
+
+func TestSplitLines_SingleLine(t *testing.T) {
+	got := splitLines("hello")
+	if len(got) != 1 || got[0] != "hello" {
+		t.Errorf("splitLines('hello') = %v, want ['hello']", got)
+	}
+}
+
+func TestSplitLines_MultipleLines(t *testing.T) {
+	got := splitLines("a\nb\nc")
+	if len(got) != 3 {
+		t.Fatalf("expected 3 lines, got %d", len(got))
+	}
+	if got[0] != "a" || got[1] != "b" || got[2] != "c" {
+		t.Errorf("splitLines('a\\nb\\nc') = %v", got)
+	}
+}
+
+// Tests for footer display priority
+
+func TestRenderFooter_PriorityKillOverResult(t *testing.T) {
+	m := Model{
+		killMode: true,
+		killTarget: &killTargetInfo{
+			PID:         999,
+			ProcessName: "KillMe",
+			Signal:      "SIGTERM",
+		},
+		killResult:   "Some old result",
+		killResultAt: time.Now(),
+		stack:        []ViewState{{Level: LevelProcessList}},
+	}
+
+	result := m.renderFooter()
+
+	// Kill mode should take precedence over result
+	if !strings.Contains(result, "Kill PID 999") {
+		t.Error("Kill mode should show kill prompt, not result")
+	}
+	if strings.Contains(result, "Some old result") {
+		t.Error("Kill result should not appear when kill mode is active")
+	}
+}
+
+func TestRenderFooter_PriorityResultOverSearch(t *testing.T) {
+	m := Model{
+		killMode:        false,
+		killResult:      "Killed successfully",
+		killResultAt:    time.Now(),
+		searchMode:      true,
+		searchQuery:     "chrome",
+		refreshInterval: 2 * time.Second,
+		stack:           []ViewState{{Level: LevelProcessList}},
+	}
+
+	result := m.renderFooter()
+
+	// Result should take precedence over search
+	if !strings.Contains(result, "Killed successfully") {
+		t.Error("Kill result should show when recent")
+	}
+	if strings.Contains(result, "/chrome") {
+		t.Error("Search input should not appear when result is shown")
+	}
+}
+
+func TestRenderFooter_PrioritySearchOverFilter(t *testing.T) {
+	m := Model{
+		killMode:        false,
+		killResult:      "",
+		searchMode:      true,
+		searchQuery:     "firefox",
+		activeFilter:    "chrome",
+		refreshInterval: 2 * time.Second,
+		stack:           []ViewState{{Level: LevelProcessList}},
+	}
+
+	result := m.renderFooter()
+
+	// Search mode should take precedence over filter
+	if !strings.Contains(result, "/firefox") {
+		t.Error("Search input should show in search mode")
+	}
+	if strings.Contains(result, "[filter: chrome]") {
+		t.Error("Active filter should not appear when in search mode")
+	}
+}
+
+func TestRenderFooter_PriorityFilterOverBreadcrumbs(t *testing.T) {
+	m := Model{
+		killMode:        false,
+		killResult:      "",
+		searchMode:      false,
+		activeFilter:    "ssh",
+		refreshInterval: 2 * time.Second,
+		stack:           []ViewState{{Level: LevelProcessList}},
+	}
+
+	result := m.renderFooter()
+
+	// Filter indicator should appear with breadcrumbs
+	if !strings.Contains(result, "[ssh]") {
+		t.Error("Filter indicator should show")
+	}
+	if !strings.Contains(result, "PROCESSES") {
+		t.Error("Breadcrumbs should still appear with filter")
+	}
+}
+
+func TestRenderFooter_BreadcrumbsOnly(t *testing.T) {
+	m := Model{
+		killMode:        false,
+		killResult:      "",
+		searchMode:      false,
+		activeFilter:    "",
+		refreshInterval: 2 * time.Second,
+		stack:           []ViewState{{Level: LevelProcessList}},
+	}
+
+	result := m.renderFooter()
+
+	// Only breadcrumbs should appear
+	if !strings.Contains(result, "PROCESSES") {
+		t.Error("Breadcrumbs should show")
+	}
+}
+
+// Tests for formatAddr
+
+func TestFormatAddr_Empty(t *testing.T) {
+	result := formatAddr("", "tcp", false)
+	if result != "" {
+		t.Errorf("formatAddr('') = %q, want ''", result)
+	}
+}
+
+func TestFormatAddr_Asterisk(t *testing.T) {
+	result := formatAddr("*", "tcp", false)
+	if result != "*" {
+		t.Errorf("formatAddr('*') = %q, want '*'", result)
+	}
+}
+
+func TestFormatAddr_NoColon(t *testing.T) {
+	result := formatAddr("127.0.0.1", "tcp", false)
+	if result != "127.0.0.1" {
+		t.Errorf("formatAddr('127.0.0.1') = %q, want '127.0.0.1'", result)
+	}
+}
+
+func TestFormatAddr_BasicIPv4(t *testing.T) {
+	result := formatAddr("127.0.0.1:8080", "tcp", false)
+	if result != "127.0.0.1:8080" {
+		t.Errorf("formatAddr('127.0.0.1:8080') = %q, want '127.0.0.1:8080'", result)
+	}
+}
+
+func TestFormatAddr_WithServiceNames(t *testing.T) {
+	result := formatAddr("127.0.0.1:80", "tcp", true)
+	if result != "127.0.0.1:http" {
+		t.Errorf("formatAddr with service names = %q, want '127.0.0.1:http'", result)
+	}
+}
+
+func TestFormatAddr_WithServiceNames_HTTPS(t *testing.T) {
+	result := formatAddr("10.0.0.1:443", "tcp", true)
+	if result != "10.0.0.1:https" {
+		t.Errorf("formatAddr with service names = %q, want '10.0.0.1:https'", result)
+	}
+}
+
+func TestFormatAddr_WithServiceNames_DNS(t *testing.T) {
+	result := formatAddr("8.8.8.8:53", "udp", true)
+	if result != "8.8.8.8:dns" {
+		t.Errorf("formatAddr with service names = %q, want '8.8.8.8:dns'", result)
+	}
+}
+
+func TestFormatAddr_WithServiceNames_UnknownPort(t *testing.T) {
+	result := formatAddr("127.0.0.1:12345", "tcp", true)
+	// Unknown port should stay as number
+	if result != "127.0.0.1:12345" {
+		t.Errorf("formatAddr with unknown port = %q, want '127.0.0.1:12345'", result)
+	}
+}
+
+func TestFormatAddr_WithDNSCache(t *testing.T) {
+	cache := map[string]string{
+		"8.8.8.8": "dns.google",
+	}
+	result := formatAddr("8.8.8.8:443", "tcp", false, cache)
+	if result != "dns.google:443" {
+		t.Errorf("formatAddr with DNS cache = %q, want 'dns.google:443'", result)
+	}
+}
+
+func TestFormatAddr_WithDNSCacheAndServiceNames(t *testing.T) {
+	cache := map[string]string{
+		"1.1.1.1": "one.cloudflare",
+	}
+	result := formatAddr("1.1.1.1:443", "tcp", true, cache)
+	if result != "one.cloudflare:https" {
+		t.Errorf("formatAddr with DNS + service names = %q, want 'one.cloudflare:https'", result)
+	}
+}
+
+func TestFormatAddr_DNSCacheMiss(t *testing.T) {
+	cache := map[string]string{
+		"8.8.8.8": "dns.google",
+	}
+	result := formatAddr("1.1.1.1:443", "tcp", false, cache)
+	// IP not in cache, should return IP
+	if result != "1.1.1.1:443" {
+		t.Errorf("formatAddr DNS cache miss = %q, want '1.1.1.1:443'", result)
+	}
+}
+
+func TestFormatAddr_EmptyDNSCache(t *testing.T) {
+	cache := map[string]string{}
+	result := formatAddr("8.8.8.8:443", "tcp", false, cache)
+	if result != "8.8.8.8:443" {
+		t.Errorf("formatAddr empty cache = %q, want '8.8.8.8:443'", result)
+	}
+}
+
+func TestFormatAddr_NilDNSCache(t *testing.T) {
+	result := formatAddr("8.8.8.8:443", "tcp", false, nil)
+	if result != "8.8.8.8:443" {
+		t.Errorf("formatAddr nil cache = %q, want '8.8.8.8:443'", result)
+	}
+}
+
+// Tests for formatRemoteAddr (wrapper)
+
+func TestFormatRemoteAddr_Basic(t *testing.T) {
+	result := formatRemoteAddr("10.0.0.1:443", "tcp", nil, false)
+	if result != "10.0.0.1:443" {
+		t.Errorf("formatRemoteAddr = %q, want '10.0.0.1:443'", result)
+	}
+}
+
+func TestFormatRemoteAddr_WithServiceNames(t *testing.T) {
+	result := formatRemoteAddr("10.0.0.1:22", "tcp", nil, true)
+	if result != "10.0.0.1:ssh" {
+		t.Errorf("formatRemoteAddr with service names = %q, want '10.0.0.1:ssh'", result)
+	}
+}
+
+func TestFormatRemoteAddr_WithDNSCache(t *testing.T) {
+	cache := map[string]string{
+		"10.0.0.1": "server.local",
+	}
+	result := formatRemoteAddr("10.0.0.1:22", "tcp", cache, true)
+	if result != "server.local:ssh" {
+		t.Errorf("formatRemoteAddr = %q, want 'server.local:ssh'", result)
+	}
+}
+
+// Tests for truncateString
+
+func TestTruncateString_Short(t *testing.T) {
+	result := truncateString("hello", 10)
+	if result != "hello" {
+		t.Errorf("truncateString short = %q, want 'hello'", result)
+	}
+}
+
+func TestTruncateString_ExactLength(t *testing.T) {
+	result := truncateString("hello", 5)
+	if result != "hello" {
+		t.Errorf("truncateString exact = %q, want 'hello'", result)
+	}
+}
+
+func TestTruncateString_NeedsTruncation(t *testing.T) {
+	result := truncateString("hello world", 8)
+	if result != "hello..." {
+		t.Errorf("truncateString truncate = %q, want 'hello...'", result)
+	}
+}
+
+func TestTruncateString_VeryShortMaxLen(t *testing.T) {
+	result := truncateString("hello", 3)
+	if result != "hel" {
+		t.Errorf("truncateString very short = %q, want 'hel'", result)
+	}
+}
+
+func TestTruncateString_MaxLen4(t *testing.T) {
+	result := truncateString("hello", 4)
+	if result != "h..." {
+		t.Errorf("truncateString maxLen 4 = %q, want 'h...'", result)
+	}
+}
+
+func TestTruncateString_EmptyString(t *testing.T) {
+	result := truncateString("", 10)
+	if result != "" {
+		t.Errorf("truncateString empty = %q, want ''", result)
 	}
 }

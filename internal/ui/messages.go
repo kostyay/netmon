@@ -20,3 +20,19 @@ type NetIOMsg struct {
 	Stats map[int32]*model.NetIOStats // Keyed by PID
 	Err   error
 }
+
+// DNSResolvedMsg contains a DNS resolution result.
+type DNSResolvedMsg struct {
+	IP       string
+	Hostname string
+	Err      error
+}
+
+// VersionCheckMsg contains result of GitHub release check.
+type VersionCheckMsg struct {
+	LatestVersion string // empty if up-to-date
+	Err           error  // nil on success (even if up-to-date)
+}
+
+// AnimationTickMsg is sent for UI animation updates (e.g., live indicator pulse).
+type AnimationTickMsg time.Time

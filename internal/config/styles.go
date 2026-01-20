@@ -8,7 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-//go:embed skins/dracula.yaml
+//go:embed skins/dracula.yaml skins/industrial.yaml
 var defaultSkin embed.FS
 
 // Color represents a hex color string.
@@ -16,29 +16,35 @@ type Color string
 
 // TableStyle defines colors for the table view.
 type TableStyle struct {
-	FgColor         Color `yaml:"fgColor"`
-	BgColor         Color `yaml:"bgColor"`
-	CursorFgColor   Color `yaml:"cursorFgColor"`
-	CursorBgColor   Color `yaml:"cursorBgColor"`
-	HeaderFgColor   Color `yaml:"headerFgColor"`
-	HeaderBgColor   Color `yaml:"headerBgColor"`
-	SortIndicator   Color `yaml:"sortIndicator"`
-	SelectedColumn  Color `yaml:"selectedColumn"`
+	FgColor        Color `yaml:"fgColor"`
+	BgColor        Color `yaml:"bgColor"`
+	CursorFgColor  Color `yaml:"cursorFgColor"`
+	CursorBgColor  Color `yaml:"cursorBgColor"`
+	HeaderFgColor  Color `yaml:"headerFgColor"`
+	HeaderBgColor  Color `yaml:"headerBgColor"`
+	SortIndicator  Color `yaml:"sortIndicator"`
+	SelectedColumn Color `yaml:"selectedColumn"`
+	AddedFgColor   Color `yaml:"addedFgColor"`   // New connections
+	RemovedFgColor Color `yaml:"removedFgColor"` // Removed connections
 }
 
 // HeaderStyle defines colors for the header section.
 type HeaderStyle struct {
-	FgColor   Color `yaml:"fgColor"`
-	BgColor   Color `yaml:"bgColor"`
-	TitleFg   Color `yaml:"titleFg"`
+	FgColor Color `yaml:"fgColor"`
+	BgColor Color `yaml:"bgColor"`
+	TitleFg Color `yaml:"titleFg"`
+	LiveFg  Color `yaml:"liveFg"`  // Live indicator (green pulse)
+	WarnFg  Color `yaml:"warnFg"`  // Warnings/attention (amber)
+	StatsFg Color `yaml:"statsFg"` // Stats text (muted)
 }
 
 // FooterStyle defines colors for the footer section.
 type FooterStyle struct {
-	FgColor     Color `yaml:"fgColor"`
-	BgColor     Color `yaml:"bgColor"`
-	KeyFgColor  Color `yaml:"keyFgColor"`
-	DescFgColor Color `yaml:"descFgColor"`
+	FgColor      Color `yaml:"fgColor"`
+	BgColor      Color `yaml:"bgColor"`
+	KeyFgColor   Color `yaml:"keyFgColor"`
+	DescFgColor  Color `yaml:"descFgColor"`
+	GroupFgColor Color `yaml:"groupFgColor"` // Group labels (NAV, ACTION)
 }
 
 // StatusStyle defines colors for status lines.
@@ -47,12 +53,27 @@ type StatusStyle struct {
 	BgColor Color `yaml:"bgColor"`
 }
 
+// ModalStyle defines colors for modal dialogs.
+type ModalStyle struct {
+	DimmedFgColor Color `yaml:"dimmedFgColor"` // Dimmed background when modal visible
+	BorderFgColor Color `yaml:"borderFgColor"` // Modal border
+	AccentFgColor Color `yaml:"accentFgColor"` // Accent color for modal
+}
+
+// BorderStyle defines colors for borders.
+type BorderStyle struct {
+	FgColor       Color `yaml:"fgColor"`       // Default border color
+	ActiveFgColor Color `yaml:"activeFgColor"` // Active/focused border
+}
+
 // Styles holds all the theme colors.
 type Styles struct {
 	Table  TableStyle  `yaml:"table"`
 	Header HeaderStyle `yaml:"header"`
 	Footer FooterStyle `yaml:"footer"`
 	Status StatusStyle `yaml:"status"`
+	Modal  ModalStyle  `yaml:"modal"`
+	Border BorderStyle `yaml:"border"`
 }
 
 // Theme is the top-level theme configuration.
@@ -61,35 +82,50 @@ type Theme struct {
 	Styles Styles `yaml:"styles"`
 }
 
-// DefaultTheme returns the built-in Dracula theme.
+// DefaultTheme returns the built-in Industrial theme.
 func DefaultTheme() *Theme {
 	return &Theme{
-		Name: "dracula",
+		Name: "industrial",
 		Styles: Styles{
 			Table: TableStyle{
-				FgColor:         "#f8f8f2",
-				BgColor:         "#282a36",
-				CursorFgColor:   "#282a36",
-				CursorBgColor:   "#bd93f9",
-				HeaderFgColor:   "#bd93f9",
-				HeaderBgColor:   "#282a36",
-				SortIndicator:   "#8be9fd",
-				SelectedColumn:  "#f8f8f2",
+				FgColor:        "#e6edf3",
+				BgColor:        "#0d1117",
+				CursorFgColor:  "#ffffff",
+				CursorBgColor:  "#58a6ff",
+				HeaderFgColor:  "#58a6ff",
+				HeaderBgColor:  "#0d1117",
+				SortIndicator:  "#3fb950",
+				SelectedColumn: "#e6edf3",
+				AddedFgColor:   "#3fb950",
+				RemovedFgColor: "#f85149",
 			},
 			Header: HeaderStyle{
-				FgColor: "#f8f8f2",
-				BgColor: "#282a36",
-				TitleFg: "#bd93f9",
+				FgColor: "#e6edf3",
+				BgColor: "#0d1117",
+				TitleFg: "#58a6ff",
+				LiveFg:  "#3fb950",
+				WarnFg:  "#d29922",
+				StatsFg: "#7d8590",
 			},
 			Footer: FooterStyle{
-				FgColor:     "#f8f8f2",
-				BgColor:     "#282a36",
-				KeyFgColor:  "#ff79c6",
-				DescFgColor: "#f8f8f2",
+				FgColor:      "#e6edf3",
+				BgColor:      "#0d1117",
+				KeyFgColor:   "#58a6ff",
+				DescFgColor:  "#7d8590",
+				GroupFgColor: "#e6edf3",
 			},
 			Status: StatusStyle{
-				FgColor: "#6272a4",
-				BgColor: "#282a36",
+				FgColor: "#7d8590",
+				BgColor: "#0d1117",
+			},
+			Modal: ModalStyle{
+				DimmedFgColor: "#7d8590",
+				BorderFgColor: "#30363d",
+				AccentFgColor: "#58a6ff",
+			},
+			Border: BorderStyle{
+				FgColor:       "#30363d",
+				ActiveFgColor: "#58a6ff",
 			},
 		},
 	}
@@ -110,8 +146,8 @@ func LoadTheme() (*Theme, error) {
 		}
 	}
 
-	// Fall back to embedded default
-	data, err := defaultSkin.ReadFile("skins/dracula.yaml")
+	// Fall back to embedded default (industrial theme)
+	data, err := defaultSkin.ReadFile("skins/industrial.yaml")
 	if err != nil {
 		// If embedded file not found, return hardcoded default
 		return DefaultTheme(), nil

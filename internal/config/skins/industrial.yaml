@@ -1,0 +1,42 @@
+name: industrial
+
+styles:
+  table:
+    fgColor: "#e6edf3"        # Crisp white
+    bgColor: "#0d1117"        # Deeper black (GitHub dark)
+    cursorFgColor: "#ffffff"  # Pure white for contrast
+    cursorBgColor: "#58a6ff"  # Blue selection
+    headerFgColor: "#58a6ff"  # Industrial blue headers
+    headerBgColor: "#0d1117"
+    sortIndicator: "#3fb950"  # Green for active sort
+    selectedColumn: "#e6edf3" # Bright white for selected column
+    addedFgColor: "#3fb950"   # Green for new connections
+    removedFgColor: "#f85149" # Red for removed
+
+  header:
+    fgColor: "#e6edf3"
+    bgColor: "#0d1117"
+    titleFg: "#58a6ff"        # Blue title
+    liveFg: "#3fb950"         # Green for LIVE indicator
+    warnFg: "#d29922"         # Amber for warnings
+    statsFg: "#7d8590"        # Muted for stats
+
+  footer:
+    fgColor: "#e6edf3"
+    bgColor: "#0d1117"
+    keyFgColor: "#58a6ff"     # Blue keys
+    descFgColor: "#7d8590"    # Muted descriptions
+    groupFgColor: "#e6edf3"   # Bright white for group labels
+
+  status:
+    fgColor: "#7d8590"        # Muted gray
+    bgColor: "#0d1117"
+
+  modal:
+    dimmedFgColor: "#7d8590"  # Muted for dimmed content
+    borderFgColor: "#30363d"  # Subtle border
+    accentFgColor: "#58a6ff"  # Blue accent
+
+  border:
+    fgColor: "#30363d"        # Subtle borders
+    activeFgColor: "#58a6ff"  # Blue for active/focus
