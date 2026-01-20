@@ -219,8 +219,9 @@ Industrial theme by default. Custom theme at `~/.config/netmon/skin.yaml`. See `
 
 ## Requirements
 
-- macOS (Darwin)
+- macOS or Linux
 - Go 1.25+
+- Requires root/sudo for full connection visibility on Linux
 
 ## Exit Codes
 
