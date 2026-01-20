@@ -7,7 +7,7 @@ A fast, interactive network monitor for macOS. See live connections grouped by p
 ## Installation
 
 ```bash
-go install github.com/yourusername/netmon/cmd/netmon@latest
+go install github.com/kostyay/netmon/cmd/netmon@latest
 ```
 
 Or build from source:
