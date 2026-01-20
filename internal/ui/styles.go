@@ -112,80 +112,7 @@ func RemovedConnStyle() lipgloss.Style {
 func RenderFrameWithTitle(content string, title string, width, height int) string {
 	borderColor := lipgloss.Color(config.CurrentTheme.Styles.Modal.BorderFgColor)
 	titleColor := lipgloss.Color(config.CurrentTheme.Styles.Modal.AccentFgColor)
-
-	// Heavy box drawing characters for modal prominence
-	topLeft := "┏"
-	topRight := "┓"
-	bottomLeft := "┗"
-	bottomRight := "┛"
-	horizontal := "━"
-	vertical := "┃"
-	sepLeft := "┣"
-	sepRight := "┫"
-
-	// Style for border characters
-	borderStyle := lipgloss.NewStyle().Foreground(borderColor)
-	titleStyle := lipgloss.NewStyle().Foreground(titleColor).Bold(true)
-
-	// Calculate inner width (content area without borders)
-	innerWidth := width - 2
-
-	// Build top border with centered title
-	titleWithPadding := " " + title + " "
-	titleLen := len(titleWithPadding)
-
-	// Calculate padding on each side of the title
-	remainingWidth := innerWidth - titleLen
-	if remainingWidth < 0 {
-		remainingWidth = 0
-		titleWithPadding = titleWithPadding[:innerWidth]
-	}
-	leftPad := remainingWidth / 2
-	rightPad := remainingWidth - leftPad
-
-	topBorder := borderStyle.Render(topLeft)
-	topBorder += borderStyle.Render(strings.Repeat(horizontal, leftPad))
-	topBorder += titleStyle.Render(titleWithPadding)
-	topBorder += borderStyle.Render(strings.Repeat(horizontal, rightPad))
-	topBorder += borderStyle.Render(topRight)
-
-	// Build separator line (under title)
-	sepLine := borderStyle.Render(sepLeft)
-	sepLine += borderStyle.Render(strings.Repeat(horizontal, innerWidth))
-	sepLine += borderStyle.Render(sepRight)
-
-	// Build bottom border
-	bottomBorder := borderStyle.Render(bottomLeft)
-	bottomBorder += borderStyle.Render(strings.Repeat(horizontal, innerWidth))
-	bottomBorder += borderStyle.Render(bottomRight)
-
-	// Style for content area with padding
-	contentStyle := lipgloss.NewStyle().
-		Width(innerWidth).
-		Height(height-3). // -3 for top, sep, and bottom
-		Padding(0, 1)
-
-	styledContent := contentStyle.Render(content)
-
-	// Build complete frame
-	var result strings.Builder
-	result.WriteString(topBorder)
-	result.WriteString("\n")
-	result.WriteString(sepLine)
-	result.WriteString("\n")
-
-	// Add content lines with vertical borders
-	lines := splitLines(styledContent)
-	for _, line := range lines {
-		result.WriteString(borderStyle.Render(vertical))
-		result.WriteString(padRight(line, innerWidth))
-		result.WriteString(borderStyle.Render(vertical))
-		result.WriteString("\n")
-	}
-
-	result.WriteString(bottomBorder)
-
-	return result.String()
+	return renderFrameWithColors(content, title, width, height, borderColor, titleColor)
 }
 
 // splitLines splits a string into lines.
@@ -212,6 +139,78 @@ func DimmedStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Modal.DimmedFgColor)).
 		Faint(true)
+}
+
+// DangerBorderColor returns the red color for danger modals.
+func DangerBorderColor() lipgloss.Color {
+	return lipgloss.Color("#FF5555")
+}
+
+// RenderDangerFrameWithTitle renders content in a frame with danger/red styling.
+// Used for destructive confirmations like kill process.
+func RenderDangerFrameWithTitle(content string, title string, width, height int) string {
+	dangerColor := DangerBorderColor()
+	return renderFrameWithColors(content, title, width, height, dangerColor, dangerColor)
+}
+
+// renderFrameWithColors renders a frame with specified border and title colors.
+func renderFrameWithColors(content, title string, width, height int, borderColor, titleColor lipgloss.Color) string {
+	// Heavy box drawing characters for modal prominence
+	topLeft := "┏"
+	topRight := "┓"
+	bottomLeft := "┗"
+	bottomRight := "┛"
+	horizontal := "━"
+	vertical := "┃"
+
+	borderStyle := lipgloss.NewStyle().Foreground(borderColor)
+	titleStyle := lipgloss.NewStyle().Foreground(titleColor).Bold(true)
+
+	innerWidth := width - 2
+
+	// Build top border with centered title
+	titleWithPadding := " " + title + " "
+	titleLen := len(titleWithPadding)
+
+	remainingWidth := innerWidth - titleLen
+	if remainingWidth < 0 {
+		remainingWidth = 0
+		titleWithPadding = titleWithPadding[:innerWidth]
+	}
+	leftPad := remainingWidth / 2
+	rightPad := remainingWidth - leftPad
+
+	topBorder := borderStyle.Render(topLeft)
+	topBorder += borderStyle.Render(strings.Repeat(horizontal, leftPad))
+	topBorder += titleStyle.Render(titleWithPadding)
+	topBorder += borderStyle.Render(strings.Repeat(horizontal, rightPad))
+	topBorder += borderStyle.Render(topRight)
+
+	bottomBorder := borderStyle.Render(bottomLeft)
+	bottomBorder += borderStyle.Render(strings.Repeat(horizontal, innerWidth))
+	bottomBorder += borderStyle.Render(bottomRight)
+
+	contentStyle := lipgloss.NewStyle().
+		Width(innerWidth).
+		Height(height - 2).
+		Padding(0, 1)
+
+	styledContent := contentStyle.Render(content)
+
+	var result strings.Builder
+	result.WriteString(topBorder)
+	result.WriteString("\n")
+
+	for _, line := range splitLines(styledContent) {
+		result.WriteString(borderStyle.Render(vertical))
+		result.WriteString(padRight(line, innerWidth))
+		result.WriteString(borderStyle.Render(vertical))
+		result.WriteString("\n")
+	}
+
+	result.WriteString(bottomBorder)
+
+	return result.String()
 }
 
 // LiveIndicatorStyle returns the style for the LIVE indicator (green).
