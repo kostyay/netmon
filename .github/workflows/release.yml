@@ -6,46 +6,42 @@ on:
     types: [completed]
     branches: [main]
 
+permissions:
+  contents: write
+
 jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
     if: github.event.workflow_run.conclusion == 'success'
-    permissions:
-      contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
 
       - name: Get latest tag
         id: get_tag
         run: |
-          # Fetch all tags
           git fetch --tags
 
-          # Get latest tag by version (from ALL tags, not just reachable from HEAD)
           LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -n 1)
           if [ -z "$LATEST_TAG" ]; then
             LATEST_TAG="v0.0.0"
           fi
           echo "latest=$LATEST_TAG" >> $GITHUB_OUTPUT
 
-          # Parse version components
           VERSION=${LATEST_TAG#v}
           MAJOR=$(echo $VERSION | cut -d. -f1)
           MINOR=$(echo $VERSION | cut -d. -f2)
           PATCH=$(echo $VERSION | cut -d. -f3)
 
-          # Increment patch version
           NEW_PATCH=$((PATCH + 1))
           NEW_TAG="v${MAJOR}.${MINOR}.${NEW_PATCH}"
 
-          # If this is the first release, start at v0.1.0
           if [ "$LATEST_TAG" = "v0.0.0" ]; then
             NEW_TAG="v0.1.0"
           fi
@@ -61,7 +57,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Check if tag already exists on remote (race condition)
           if git ls-remote --tags origin | grep -q "refs/tags/$NEW_TAG$"; then
             echo "Tag $NEW_TAG already exists on remote, skipping release"
             echo "skip=true" >> $GITHUB_OUTPUT
