@@ -2,8 +2,6 @@
 
 A fast, interactive network monitor for macOS. See live connections grouped by process in your terminal, or pipe JSON to scripts and LLMs.
 
-![netmon demo](demo.gif)
-
 ## Installation
 
 ```bash
