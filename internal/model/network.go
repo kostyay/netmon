@@ -2,6 +2,8 @@ package model
 
 import (
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -44,6 +46,7 @@ type Connection struct {
 // Application represents a grouped set of connections by app name.
 type Application struct {
 	Name             string       // Process name (e.g., Chrome)
+	Exe              string       // Full path to executable (e.g., /usr/bin/chrome)
 	PIDs             []int32      // All PIDs running this app
 	Connections      []Connection // All connections across all PIDs
 	EstablishedCount int          // Number of ESTABLISHED connections
@@ -76,4 +79,48 @@ func (s *NetworkSnapshot) TotalConnections() int {
 		total += len(app.Connections)
 	}
 	return total
+}
+
+// ConnectionKey uniquely identifies a connection.
+type ConnectionKey struct {
+	ProcessName string
+	LocalAddr   string
+	RemoteAddr  string
+}
+
+// SelectionID identifies a selected item (process or connection).
+type SelectionID struct {
+	ProcessName   string
+	ConnectionKey *ConnectionKey
+}
+
+// SelectionIDFromProcess creates a SelectionID for a process.
+func SelectionIDFromProcess(name string) SelectionID {
+	return SelectionID{ProcessName: name}
+}
+
+// SelectionIDFromConnection creates a SelectionID for a connection.
+func SelectionIDFromConnection(processName, localAddr, remoteAddr string) SelectionID {
+	return SelectionID{
+		ProcessName: processName,
+		ConnectionKey: &ConnectionKey{
+			ProcessName: processName,
+			LocalAddr:   localAddr,
+			RemoteAddr:  remoteAddr,
+		},
+	}
+}
+
+// ExtractPort extracts port number from an address string like "127.0.0.1:8080".
+// Returns 0 if the address doesn't contain a valid port.
+func ExtractPort(addr string) int {
+	idx := strings.LastIndex(addr, ":")
+	if idx < 0 {
+		return 0
+	}
+	port, err := strconv.Atoi(addr[idx+1:])
+	if err != nil {
+		return 0
+	}
+	return port
 }

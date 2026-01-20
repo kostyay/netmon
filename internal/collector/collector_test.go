@@ -123,3 +123,38 @@ func TestCollectorInterface_SortsApplications(t *testing.T) {
 		}
 	}
 }
+
+func TestCollectOnce(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	snapshot, ioStats, err := CollectOnce(ctx)
+	if err != nil {
+		t.Fatalf("CollectOnce failed: %v", err)
+	}
+
+	if snapshot == nil {
+		t.Fatal("Expected non-nil snapshot")
+	}
+
+	if snapshot.Timestamp.IsZero() {
+		t.Error("Snapshot timestamp should be set")
+	}
+
+	// ioStats may be nil or empty if nettop unavailable, but shouldn't error
+	if ioStats == nil {
+		t.Log("ioStats is nil (nettop may not be available)")
+	}
+}
+
+func TestCollectOnce_ContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	snapshot, _, err := CollectOnce(ctx)
+
+	// Either error or quick return is acceptable
+	if err == nil && snapshot == nil {
+		t.Error("CollectOnce should return snapshot or error")
+	}
+}
