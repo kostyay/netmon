@@ -161,4 +161,3 @@ func (c *linuxCollector) getState(conn net.ConnectionStat) model.ConnectionState
 	}
 	return model.ConnectionState(conn.Status)
 }
-

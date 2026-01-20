@@ -245,4 +245,3 @@ func BorderStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Foreground(lipgloss.Color(config.CurrentTheme.Styles.Border.FgColor))
 }
-

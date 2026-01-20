@@ -175,4 +175,3 @@ func (c *darwinCollector) getState(conn net.ConnectionStat) model.ConnectionStat
 	}
 	return model.ConnectionState(conn.Status)
 }
-
