@@ -184,7 +184,7 @@ type Model struct {
 	animationFrame int  // current animation frame (for pulsing indicators)
 
 	// Docker container resolution
-	dockerResolver docker.Resolver              // resolves host ports to containers
+	dockerResolver docker.Resolver               // resolves host ports to containers
 	dockerCache    map[int]*docker.ContainerPort // host port → container info
 	dockerView     bool                          // true when viewing Docker process connections
 }
