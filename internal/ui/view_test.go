@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
+	"github.com/kostyay/netmon/internal/docker"
 	"github.com/kostyay/netmon/internal/model"
 )
 
@@ -1711,5 +1712,141 @@ func TestTruncateString_EmptyString(t *testing.T) {
 	result := truncateString("", 10)
 	if result != "" {
 		t.Errorf("truncateString empty = %q, want ''", result)
+	}
+}
+
+// Tests for Docker Container column rendering
+
+func TestRenderConnections_DockerView_HasContainerColumn(t *testing.T) {
+	m := createDockerViewTestModel()
+	result := m.renderConnectionsHeader(calculateColumnWidths(dockerConnectionsColumns(), 120))
+	if !strings.Contains(result, "Container") {
+		t.Error("Docker view header should contain 'Container' column")
+	}
+}
+
+func TestRenderConnections_NonDockerView_NoContainerColumn(t *testing.T) {
+	m := createDockerViewTestModel()
+	m.dockerView = false
+	result := m.renderConnectionsHeader(calculateColumnWidths(connectionsColumns(), 120))
+	if strings.Contains(result, "Container") {
+		t.Error("Non-Docker view header should NOT contain 'Container' column")
+	}
+}
+
+func TestRenderConnections_DockerView_MatchedPort(t *testing.T) {
+	m := createDockerViewTestModel()
+	m.dockerCache[8080] = &docker.ContainerPort{
+		Container:     model.ContainerInfo{Name: "nginx", Image: "nginx:latest", ID: "abc123"},
+		HostPort:      8080,
+		ContainerPort: 80,
+		Protocol:      "tcp",
+	}
+	// Render should include container info
+	result := m.renderConnectionsListData()
+	if !strings.Contains(result, "nginx") {
+		t.Error("Docker view should show container name for matched port")
+	}
+	if !strings.Contains(result, "nginx:latest") {
+		t.Error("Docker view should show container image for matched port")
+	}
+}
+
+func TestRenderConnections_DockerView_UnmatchedPort(t *testing.T) {
+	m := createDockerViewTestModel()
+	// Cache has port 9999, but connections are on 8080 and 3306
+	m.dockerCache[9999] = &docker.ContainerPort{
+		Container:     model.ContainerInfo{Name: "other", Image: "other:latest"},
+		HostPort:      9999,
+		ContainerPort: 80,
+	}
+	result := m.renderConnectionsListData()
+	if strings.Contains(result, "other") {
+		t.Error("Docker view should NOT show unmatched container")
+	}
+}
+
+func TestRenderConnections_DockerView_EmptyCache(t *testing.T) {
+	m := createDockerViewTestModel()
+	// Empty cache — no containers resolved
+	result := m.renderConnectionsListData()
+	// Should still render without errors
+	if result == "" {
+		t.Error("Docker view should render even with empty cache")
+	}
+	// Container column data should be empty strings with no container names
+	_ = strings.Contains(result, "Container")
+}
+
+func TestContainerColumnValue_MatchedPort(t *testing.T) {
+	conn := model.Connection{LocalAddr: "0.0.0.0:8080", Protocol: "TCP"}
+	cache := map[int]*docker.ContainerPort{
+		8080: {
+			Container:     model.ContainerInfo{Name: "web", Image: "nginx:1.25"},
+			HostPort:      8080,
+			ContainerPort: 80,
+			Protocol:      "tcp",
+		},
+	}
+	got := containerColumnValue(conn, cache, 0)
+	if !strings.Contains(got, "web") || !strings.Contains(got, "nginx:1.25") {
+		t.Errorf("containerColumnValue = %q, want to contain 'web' and 'nginx:1.25'", got)
+	}
+}
+
+func TestContainerColumnValue_UnmatchedPort(t *testing.T) {
+	conn := model.Connection{LocalAddr: "0.0.0.0:9090", Protocol: "TCP"}
+	cache := map[int]*docker.ContainerPort{
+		8080: {Container: model.ContainerInfo{Name: "web"}},
+	}
+	got := containerColumnValue(conn, cache, 0)
+	if got != "" {
+		t.Errorf("containerColumnValue for unmatched port = %q, want empty", got)
+	}
+}
+
+func TestContainerColumnValue_NilCache(t *testing.T) {
+	conn := model.Connection{LocalAddr: "0.0.0.0:8080", Protocol: "TCP"}
+	got := containerColumnValue(conn, nil, 0)
+	if got != "" {
+		t.Errorf("containerColumnValue with nil cache = %q, want empty", got)
+	}
+}
+
+func createDockerViewTestModel() Model {
+	snapshot := &model.NetworkSnapshot{
+		Applications: []model.Application{
+			{
+				Name: "com.docker.backend",
+				PIDs: []int32{100},
+				Connections: []model.Connection{
+					{PID: 100, Protocol: "TCP", LocalAddr: "0.0.0.0:8080", State: "LISTEN"},
+					{PID: 100, Protocol: "TCP", LocalAddr: "0.0.0.0:3306", State: "LISTEN"},
+				},
+			},
+		},
+		Timestamp: time.Now(),
+	}
+	return Model{
+		collector:      newMockCollector(snapshot),
+		netIOCollector: newMockNetIOCollector(nil),
+		snapshot:       snapshot,
+		netIOCache:     make(map[int32]*model.NetIOStats),
+		changes:        make(map[ConnectionKey]Change),
+		dockerResolver: newMockDockerResolver(nil),
+		dockerCache:    make(map[int]*docker.ContainerPort),
+		dockerView:     true,
+		width:          120,
+		height:         40,
+		ready:          true,
+		viewport:       viewport.New(116, 30),
+		stack: []ViewState{{
+			Level:          LevelConnections,
+			ProcessName:    "com.docker.backend",
+			Cursor:         0,
+			SortColumn:     SortLocal,
+			SortAscending:  true,
+			SelectedColumn: SortLocal,
+		}},
 	}
 }

@@ -2,10 +2,13 @@ package ui
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/kostyay/netmon/internal/docker"
 	"github.com/kostyay/netmon/internal/model"
 )
 
@@ -29,6 +32,8 @@ func createTestModel() Model {
 		snapshot:        snapshot,
 		netIOCache:      make(map[int32]*model.NetIOStats),
 		changes:         make(map[ConnectionKey]Change),
+		dockerResolver:  newMockDockerResolver(nil),
+		dockerCache:     make(map[int]*docker.ContainerPort),
 		stack: []ViewState{{
 			Level:          LevelProcessList,
 			ProcessName:    "",
@@ -1438,5 +1443,295 @@ func TestDNSResolvedMsg_OverwritesCache(t *testing.T) {
 
 	if newModel.dnsCache["8.8.8.8"] != "new.name" {
 		t.Errorf("dnsCache[8.8.8.8] = %q, want 'new.name'", newModel.dnsCache["8.8.8.8"])
+	}
+}
+
+// Tests for Docker detection and messages
+
+func createDockerTestModel() Model {
+	snapshot := &model.NetworkSnapshot{
+		Applications: []model.Application{
+			{Name: "com.docker.backend", PIDs: []int32{100}, Connections: []model.Connection{
+				{PID: 100, Protocol: "TCP", LocalAddr: "0.0.0.0:8080", State: "LISTEN"},
+				{PID: 100, Protocol: "TCP", LocalAddr: "0.0.0.0:3306", State: "LISTEN"},
+			}},
+			{Name: "Chrome", PIDs: []int32{200}, Connections: []model.Connection{
+				{PID: 200, Protocol: "TCP", LocalAddr: "127.0.0.1:52341", RemoteAddr: "142.250.80.46:443", State: "ESTABLISHED"},
+			}},
+		},
+		Timestamp: time.Now(),
+	}
+	m := Model{
+		collector:       newMockCollector(snapshot),
+		netIOCollector:  newMockNetIOCollector(nil),
+		refreshInterval: DefaultRefreshInterval,
+		snapshot:        snapshot,
+		netIOCache:      make(map[int32]*model.NetIOStats),
+		changes:         make(map[ConnectionKey]Change),
+		dockerResolver:  newMockDockerResolver(nil),
+		dockerCache:     make(map[int]*docker.ContainerPort),
+		stack: []ViewState{{
+			Level:          LevelProcessList,
+			ProcessName:    "",
+			Cursor:         0,
+			SortColumn:     SortProcess,
+			SortAscending:  true,
+			SelectedColumn: SortProcess,
+		}},
+	}
+	return m
+}
+
+func TestDrillIntoDocker_SetsDockerView(t *testing.T) {
+	m := createDockerTestModel()
+	// Chrome sorts before com.docker.backend; Docker is at cursor=1
+	m.CurrentView().Cursor = 1
+
+	msg := tea.KeyMsg{Type: tea.KeyEnter}
+	updated, cmd := m.Update(msg)
+	newModel := updated.(Model)
+
+	if !newModel.dockerView {
+		t.Error("dockerView should be true after drilling into Docker process")
+	}
+	if newModel.CurrentView().Level != LevelConnections {
+		t.Errorf("level = %v, want LevelConnections", newModel.CurrentView().Level)
+	}
+	// Should fire a Docker resolve command
+	if cmd == nil {
+		t.Error("cmd should not be nil (should fire Docker resolve)")
+	}
+}
+
+func TestDrillIntoNonDocker_DockerViewFalse(t *testing.T) {
+	m := createDockerTestModel()
+	// Chrome is first in sorted list
+	m.CurrentView().Cursor = 0
+
+	msg := tea.KeyMsg{Type: tea.KeyEnter}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.dockerView {
+		t.Error("dockerView should be false after drilling into non-Docker process")
+	}
+	if newModel.CurrentView().ProcessName != "Chrome" {
+		t.Errorf("ProcessName = %q, want 'Chrome'", newModel.CurrentView().ProcessName)
+	}
+}
+
+func TestPopFromDockerView_ClearsDockerView(t *testing.T) {
+	m := createDockerTestModel()
+	m.dockerView = true
+	m.PushView(ViewState{
+		Level:       LevelConnections,
+		ProcessName: "com.docker.backend",
+		Cursor:      0,
+	})
+
+	msg := tea.KeyMsg{Type: tea.KeyEsc}
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if newModel.dockerView {
+		t.Error("dockerView should be false after popping from Docker view")
+	}
+	if newModel.CurrentView().Level != LevelProcessList {
+		t.Errorf("level = %v, want LevelProcessList", newModel.CurrentView().Level)
+	}
+}
+
+func TestDockerResolvedMsg_PopulatesCache(t *testing.T) {
+	m := createDockerTestModel()
+	containers := map[int]*docker.ContainerPort{
+		8080: {
+			Container:     model.ContainerInfo{Name: "nginx", Image: "nginx:latest", ID: "abc123"},
+			HostPort:      8080,
+			ContainerPort: 80,
+			Protocol:      "tcp",
+		},
+	}
+	msg := DockerResolvedMsg{Containers: containers, Err: nil}
+
+	updated, cmd := m.Update(msg)
+	newModel := updated.(Model)
+
+	if len(newModel.dockerCache) != 1 {
+		t.Fatalf("dockerCache length = %d, want 1", len(newModel.dockerCache))
+	}
+	cp := newModel.dockerCache[8080]
+	if cp == nil {
+		t.Fatal("expected cache entry for port 8080")
+	}
+	if cp.Container.Name != "nginx" {
+		t.Errorf("Name = %q, want 'nginx'", cp.Container.Name)
+	}
+	if cmd != nil {
+		t.Error("cmd should be nil")
+	}
+}
+
+func TestDockerResolvedMsg_EmptyResult(t *testing.T) {
+	m := createDockerTestModel()
+	msg := DockerResolvedMsg{Containers: map[int]*docker.ContainerPort{}, Err: nil}
+
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	if len(newModel.dockerCache) != 0 {
+		t.Errorf("dockerCache length = %d, want 0", len(newModel.dockerCache))
+	}
+}
+
+func TestDockerResolvedMsg_ReplacesOldCache(t *testing.T) {
+	m := createDockerTestModel()
+	m.dockerCache[8080] = &docker.ContainerPort{
+		Container: model.ContainerInfo{Name: "old-container"},
+		HostPort:  8080,
+	}
+
+	newContainers := map[int]*docker.ContainerPort{
+		9090: {
+			Container:     model.ContainerInfo{Name: "new-container", Image: "app:v2", ID: "def456"},
+			HostPort:      9090,
+			ContainerPort: 3000,
+			Protocol:      "tcp",
+		},
+	}
+	msg := DockerResolvedMsg{Containers: newContainers, Err: nil}
+
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	// Old cache entry should be gone (full replacement)
+	if newModel.dockerCache[8080] != nil {
+		t.Error("old cache entry for port 8080 should be gone")
+	}
+	if newModel.dockerCache[9090] == nil {
+		t.Fatal("expected new cache entry for port 9090")
+	}
+	if newModel.dockerCache[9090].Container.Name != "new-container" {
+		t.Errorf("Name = %q, want 'new-container'", newModel.dockerCache[9090].Container.Name)
+	}
+}
+
+func TestDockerResolvedMsg_Error(t *testing.T) {
+	m := createDockerTestModel()
+	m.dockerCache[8080] = &docker.ContainerPort{
+		Container: model.ContainerInfo{Name: "existing"},
+		HostPort:  8080,
+	}
+
+	msg := DockerResolvedMsg{Containers: nil, Err: errors.New("docker error")}
+
+	updated, _ := m.Update(msg)
+	newModel := updated.(Model)
+
+	// Cache should remain unchanged on error
+	if newModel.dockerCache[8080] == nil || newModel.dockerCache[8080].Container.Name != "existing" {
+		t.Error("dockerCache should be unchanged on error")
+	}
+}
+
+// Integration tests: full Docker drill-down flow
+
+func TestDockerDrillDownFlow(t *testing.T) {
+	// Start at process list, drill into Docker process, receive resolver data, verify view
+	m := createDockerTestModel()
+	m.width = 120
+	m.height = 40
+	m.ready = true
+	m.viewport = viewport.New(116, 30)
+
+	// Step 1: Drill into Docker process (cursor=1, com.docker.backend)
+	m.CurrentView().Cursor = 1
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	if !m.dockerView {
+		t.Fatal("dockerView should be true after drill-down")
+	}
+	if m.CurrentView().Level != LevelConnections {
+		t.Fatalf("level = %v, want LevelConnections", m.CurrentView().Level)
+	}
+	if cmd == nil {
+		t.Fatal("should fire Docker resolve command")
+	}
+
+	// Step 2: Simulate DockerResolvedMsg with container data
+	dockerData := map[int]*docker.ContainerPort{
+		8080: {
+			Container:     model.ContainerInfo{Name: "web", Image: "nginx:latest", ID: "abc123"},
+			HostPort:      8080,
+			ContainerPort: 80,
+			Protocol:      "tcp",
+		},
+		3306: {
+			Container:     model.ContainerInfo{Name: "db", Image: "mysql:8", ID: "def456"},
+			HostPort:      3306,
+			ContainerPort: 3306,
+			Protocol:      "tcp",
+		},
+	}
+	updated, _ = m.Update(DockerResolvedMsg{Containers: dockerData})
+	m = updated.(Model)
+
+	if len(m.dockerCache) != 2 {
+		t.Fatalf("dockerCache len = %d, want 2", len(m.dockerCache))
+	}
+
+	// Step 3: Verify view renders Container column
+	view := m.View()
+	if !strings.Contains(view, "Container") {
+		t.Error("view should contain Container header")
+	}
+	if !strings.Contains(view, "web") {
+		t.Error("view should contain container name 'web'")
+	}
+	if !strings.Contains(view, "db") {
+		t.Error("view should contain container name 'db'")
+	}
+
+	// Step 4: Go back clears docker state
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(Model)
+
+	if m.dockerView {
+		t.Error("dockerView should be false after going back")
+	}
+	if m.CurrentView().Level != LevelProcessList {
+		t.Error("should be back at process list")
+	}
+}
+
+func TestDockerDrillDownFlow_NoDocker(t *testing.T) {
+	// Docker resolver returns empty: container column present but empty
+	m := createDockerTestModel()
+	m.width = 120
+	m.height = 40
+	m.ready = true
+	m.viewport = viewport.New(116, 30)
+
+	// Drill into Docker process
+	m.CurrentView().Cursor = 1
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	if !m.dockerView {
+		t.Fatal("dockerView should be true")
+	}
+
+	// Resolver returns empty (Docker not running)
+	updated, _ = m.Update(DockerResolvedMsg{Containers: map[int]*docker.ContainerPort{}})
+	m = updated.(Model)
+
+	if len(m.dockerCache) != 0 {
+		t.Fatalf("dockerCache should be empty, got %d entries", len(m.dockerCache))
+	}
+
+	// View should still render Container column header, just no container names
+	view := m.View()
+	if !strings.Contains(view, "Container") {
+		t.Error("view should still contain Container header even with empty cache")
 	}
 }

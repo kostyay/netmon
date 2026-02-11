@@ -3,6 +3,7 @@ package ui
 import (
 	"time"
 
+	"github.com/kostyay/netmon/internal/docker"
 	"github.com/kostyay/netmon/internal/model"
 )
 
@@ -32,6 +33,12 @@ type DNSResolvedMsg struct {
 type VersionCheckMsg struct {
 	LatestVersion string // empty if up-to-date
 	Err           error  // nil on success (even if up-to-date)
+}
+
+// DockerResolvedMsg contains Docker container resolution results.
+type DockerResolvedMsg struct {
+	Containers map[int]*docker.ContainerPort // host port → container info
+	Err        error
 }
 
 // AnimationTickMsg is sent for UI animation updates (e.g., live indicator pulse).

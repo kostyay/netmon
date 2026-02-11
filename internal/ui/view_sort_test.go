@@ -3,6 +3,7 @@ package ui
 import (
 	"testing"
 
+	"github.com/kostyay/netmon/internal/docker"
 	"github.com/kostyay/netmon/internal/model"
 )
 
@@ -897,5 +898,146 @@ func TestSortAllConnections_DoesNotModifyOriginal(t *testing.T) {
 
 	if original[0].ProcessName != originalFirstName {
 		t.Error("sortAllConnections should not modify original slice")
+	}
+}
+
+// Test sortConnectionsForView by Container column
+
+func TestSortConnectionsForView_ByContainer_Ascending(t *testing.T) {
+	m := Model{
+		stack: []ViewState{{
+			Level:         LevelConnections,
+			SortColumn:    SortContainer,
+			SortAscending: true,
+		}},
+		dockerCache: map[int]*docker.ContainerPort{
+			8080: {Container: model.ContainerInfo{Name: "nginx", Image: "nginx:latest"}, HostPort: 8080, ContainerPort: 80},
+			3000: {Container: model.ContainerInfo{Name: "app", Image: "node:18"}, HostPort: 3000, ContainerPort: 3000},
+		},
+	}
+	conns := []model.Connection{
+		{LocalAddr: "0.0.0.0:8080"},
+		{LocalAddr: "0.0.0.0:3000"},
+	}
+
+	result := m.sortConnectionsForView(conns)
+
+	// "app" < "nginx" alphabetically
+	if result[0].LocalAddr != "0.0.0.0:3000" || result[1].LocalAddr != "0.0.0.0:8080" {
+		t.Errorf("Expected [3000(app), 8080(nginx)], got [%s, %s]",
+			result[0].LocalAddr, result[1].LocalAddr)
+	}
+}
+
+func TestSortConnectionsForView_ByContainer_Descending(t *testing.T) {
+	m := Model{
+		stack: []ViewState{{
+			Level:         LevelConnections,
+			SortColumn:    SortContainer,
+			SortAscending: false,
+		}},
+		dockerCache: map[int]*docker.ContainerPort{
+			8080: {Container: model.ContainerInfo{Name: "nginx", Image: "nginx:latest"}, HostPort: 8080, ContainerPort: 80},
+			3000: {Container: model.ContainerInfo{Name: "app", Image: "node:18"}, HostPort: 3000, ContainerPort: 3000},
+		},
+	}
+	conns := []model.Connection{
+		{LocalAddr: "0.0.0.0:3000"},
+		{LocalAddr: "0.0.0.0:8080"},
+	}
+
+	result := m.sortConnectionsForView(conns)
+
+	// "nginx" > "app" descending
+	if result[0].LocalAddr != "0.0.0.0:8080" || result[1].LocalAddr != "0.0.0.0:3000" {
+		t.Errorf("Expected [8080(nginx), 3000(app)], got [%s, %s]",
+			result[0].LocalAddr, result[1].LocalAddr)
+	}
+}
+
+func TestSortConnectionsForView_ByContainer_EmptyValues(t *testing.T) {
+	m := Model{
+		stack: []ViewState{{
+			Level:         LevelConnections,
+			SortColumn:    SortContainer,
+			SortAscending: true,
+		}},
+		dockerCache: map[int]*docker.ContainerPort{
+			8080: {Container: model.ContainerInfo{Name: "nginx", Image: "nginx:latest"}, HostPort: 8080, ContainerPort: 80},
+		},
+	}
+	conns := []model.Connection{
+		{LocalAddr: "0.0.0.0:8080"},
+		{LocalAddr: "0.0.0.0:9999"}, // not in docker cache
+	}
+
+	result := m.sortConnectionsForView(conns)
+
+	// Empty container sorts before "nginx" (ascending, "" < "nginx")
+	if result[0].LocalAddr != "0.0.0.0:9999" || result[1].LocalAddr != "0.0.0.0:8080" {
+		t.Errorf("Expected unmatched port first (ascending), got [%s, %s]",
+			result[0].LocalAddr, result[1].LocalAddr)
+	}
+}
+
+func TestSortConnectionsForView_ByContainer_NilCache(t *testing.T) {
+	m := Model{
+		stack: []ViewState{{
+			Level:         LevelConnections,
+			SortColumn:    SortContainer,
+			SortAscending: true,
+		}},
+		dockerCache: nil,
+	}
+	conns := []model.Connection{
+		{LocalAddr: "0.0.0.0:8080"},
+		{LocalAddr: "0.0.0.0:3000"},
+	}
+
+	// Should not panic with nil cache
+	result := m.sortConnectionsForView(conns)
+
+	if len(result) != 2 {
+		t.Error("Should return all connections even with nil cache")
+	}
+}
+
+func TestContainerSortKey_MatchedPort(t *testing.T) {
+	m := Model{
+		dockerCache: map[int]*docker.ContainerPort{
+			8080: {Container: model.ContainerInfo{Name: "nginx", Image: "nginx:latest"}, HostPort: 8080, ContainerPort: 80},
+		},
+	}
+
+	key := m.containerSortKey(model.Connection{LocalAddr: "0.0.0.0:8080"})
+
+	if key == "" {
+		t.Error("Expected non-empty sort key for matched port")
+	}
+}
+
+func TestContainerSortKey_UnmatchedPort(t *testing.T) {
+	m := Model{
+		dockerCache: map[int]*docker.ContainerPort{
+			8080: {Container: model.ContainerInfo{Name: "nginx", Image: "nginx:latest"}, HostPort: 8080, ContainerPort: 80},
+		},
+	}
+
+	key := m.containerSortKey(model.Connection{LocalAddr: "0.0.0.0:9999"})
+
+	if key != "" {
+		t.Errorf("Expected empty sort key for unmatched port, got %q", key)
+	}
+}
+
+func TestContainerSortKey_NoPort(t *testing.T) {
+	m := Model{
+		dockerCache: map[int]*docker.ContainerPort{},
+	}
+
+	key := m.containerSortKey(model.Connection{LocalAddr: ""})
+
+	if key != "" {
+		t.Errorf("Expected empty sort key for empty addr, got %q", key)
 	}
 }

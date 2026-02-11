@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 
+	"github.com/kostyay/netmon/internal/docker"
 	"github.com/kostyay/netmon/internal/model"
 )
 
@@ -34,4 +35,19 @@ func (m *mockNetIOCollector) Collect(ctx context.Context) (map[int32]*model.NetI
 // newMockNetIOCollector creates a mockNetIOCollector with the given stats.
 func newMockNetIOCollector(stats map[int32]*model.NetIOStats) *mockNetIOCollector {
 	return &mockNetIOCollector{stats: stats}
+}
+
+// mockDockerResolver is a test double for docker.Resolver.
+type mockDockerResolver struct {
+	containers map[int]*docker.ContainerPort
+	err        error
+}
+
+func (m *mockDockerResolver) Resolve(ctx context.Context) (map[int]*docker.ContainerPort, error) {
+	return m.containers, m.err
+}
+
+// newMockDockerResolver creates a mockDockerResolver with the given containers.
+func newMockDockerResolver(containers map[int]*docker.ContainerPort) *mockDockerResolver {
+	return &mockDockerResolver{containers: containers}
 }

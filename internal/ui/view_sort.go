@@ -3,6 +3,7 @@ package ui
 import (
 	"sort"
 
+	"github.com/kostyay/netmon/internal/docker"
 	"github.com/kostyay/netmon/internal/model"
 )
 
@@ -166,6 +167,20 @@ func (m Model) getAggregatedBytes(pids []int32, isSent bool) uint64 {
 	return total
 }
 
+// containerSortKey returns a sort key for a connection's container column.
+// Empty string for connections without a matching container (sorts to top ascending).
+func (m Model) containerSortKey(conn model.Connection) string {
+	port := model.ExtractPort(conn.LocalAddr)
+	if port == 0 {
+		return ""
+	}
+	cp, ok := m.dockerCache[port]
+	if !ok || cp == nil {
+		return ""
+	}
+	return docker.FormatColumn(cp, 0)
+}
+
 // sortConnectionsForView sorts connections based on current view state.
 // Uses (local addr, remote addr) as secondary keys for stable ordering.
 func (m Model) sortConnectionsForView(conns []model.Connection) []model.Connection {
@@ -190,6 +205,8 @@ func (m Model) sortConnectionsForView(conns []model.Connection) []model.Connecti
 			cmp = compareString(sorted[i].RemoteAddr, sorted[j].RemoteAddr)
 		case SortState:
 			cmp = compareString(string(sorted[i].State), string(sorted[j].State))
+		case SortContainer:
+			cmp = compareString(m.containerSortKey(sorted[i]), m.containerSortKey(sorted[j]))
 		default:
 			cmp = compareString(sorted[i].LocalAddr, sorted[j].LocalAddr)
 		}

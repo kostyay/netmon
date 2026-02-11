@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -34,13 +35,48 @@ const (
 	StateNone        ConnectionState = "-"
 )
 
+// ContainerInfo holds Docker container metadata for a connection.
+type ContainerInfo struct {
+	Name  string // Container name (e.g., "nginx-proxy")
+	Image string // Image tag (e.g., "nginx:latest")
+	ID    string // Short container ID
+}
+
+// PortMapping represents a Docker container port binding.
+type PortMapping struct {
+	HostPort      int    // Port on the host (e.g., 8080)
+	ContainerPort int    // Port inside the container (e.g., 80)
+	Protocol      string // "tcp" or "udp"
+}
+
+// FormatContainerColumn returns display string for the Container column.
+// Format: "name (image) hostPort→containerPort". Truncates to maxWidth runes with "…".
+func FormatContainerColumn(ci *ContainerInfo, pm *PortMapping, maxWidth int) string {
+	if ci == nil {
+		return ""
+	}
+	var s string
+	if pm != nil {
+		s = fmt.Sprintf("%s (%s) %d→%d", ci.Name, ci.Image, pm.HostPort, pm.ContainerPort)
+	} else {
+		s = fmt.Sprintf("%s (%s)", ci.Name, ci.Image)
+	}
+	runes := []rune(s)
+	if maxWidth > 0 && len(runes) > maxWidth {
+		return string(runes[:maxWidth-1]) + "…"
+	}
+	return s
+}
+
 // Connection represents a single network connection.
 type Connection struct {
-	PID        int32           // Process ID owning this connection
-	Protocol   Protocol        // TCP or UDP
-	LocalAddr  string          // e.g., 127.0.0.1:52341
-	RemoteAddr string          // e.g., 142.250.80.46:443 or * for listening
-	State      ConnectionState // e.g., ESTABLISHED, LISTEN, - for UDP
+	PID         int32           // Process ID owning this connection
+	Protocol    Protocol        // TCP or UDP
+	LocalAddr   string          // e.g., 127.0.0.1:52341
+	RemoteAddr  string          // e.g., 142.250.80.46:443 or * for listening
+	State       ConnectionState // e.g., ESTABLISHED, LISTEN, - for UDP
+	Container   *ContainerInfo  // Docker container info (nil for non-Docker)
+	PortMapping *PortMapping    // Docker port mapping (nil if no mapping)
 }
 
 // Application represents a grouped set of connections by app name.

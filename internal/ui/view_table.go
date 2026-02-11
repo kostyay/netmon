@@ -2,6 +2,9 @@ package ui
 
 import (
 	"strings"
+
+	"github.com/kostyay/netmon/internal/docker"
+	"github.com/kostyay/netmon/internal/model"
 )
 
 // columnDef defines a table column with sizing properties.
@@ -158,6 +161,30 @@ func connectionsColumns() []columnDef {
 		{label: "Remote", id: SortRemote, minWidth: 20, flex: 2},
 		{label: "State", id: SortState, minWidth: 11, flex: 1},
 	}
+}
+
+// dockerConnectionsColumns returns columns for connections with Docker container info.
+func dockerConnectionsColumns() []columnDef {
+	return []columnDef{
+		{label: "Proto", id: SortProtocol, minWidth: 6, flex: 0},
+		{label: "Local", id: SortLocal, minWidth: 18, flex: 2},
+		{label: "Remote", id: SortRemote, minWidth: 18, flex: 2},
+		{label: "State", id: SortState, minWidth: 11, flex: 0},
+		{label: "Container", id: SortContainer, minWidth: 15, flex: 3},
+	}
+}
+
+// containerColumnValue returns the Container column display string for a connection.
+func containerColumnValue(conn model.Connection, cache map[int]*docker.ContainerPort, maxWidth int) string {
+	port := model.ExtractPort(conn.LocalAddr)
+	if port == 0 {
+		return ""
+	}
+	cp, ok := cache[port]
+	if !ok || cp == nil {
+		return ""
+	}
+	return docker.FormatColumn(cp, maxWidth)
 }
 
 // allConnectionsColumns returns the column definitions for the all-connections list.

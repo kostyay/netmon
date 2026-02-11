@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/kostyay/netmon/internal/collector"
 	"github.com/kostyay/netmon/internal/config"
+	"github.com/kostyay/netmon/internal/docker"
 	"github.com/kostyay/netmon/internal/model"
 )
 
@@ -60,6 +61,8 @@ const (
 	SortListen
 	SortTX
 	SortRX
+	// Docker-specific columns
+	SortContainer
 )
 
 // String returns a human-readable name for the SortColumn.
@@ -87,6 +90,8 @@ func (s SortColumn) String() string {
 		return "TX"
 	case SortRX:
 		return "RX"
+	case SortContainer:
+		return "Container"
 	default:
 		return fmt.Sprintf("SortColumn(%d)", s)
 	}
@@ -177,6 +182,11 @@ type Model struct {
 	// Animation state
 	animations     bool // whether animations are enabled
 	animationFrame int  // current animation frame (for pulsing indicators)
+
+	// Docker container resolution
+	dockerResolver docker.Resolver              // resolves host ports to containers
+	dockerCache    map[int]*docker.ContainerPort // host port → container info
+	dockerView     bool                          // true when viewing Docker process connections
 }
 
 // killTargetInfo holds info about the process to be killed.
@@ -202,6 +212,8 @@ func NewModel() Model {
 		dnsEnabled:       config.CurrentSettings.DNSEnabled,
 		serviceNames:     config.CurrentSettings.ServiceNames,
 		animations:       config.CurrentSettings.Animations,
+		dockerResolver:   docker.NewResolver(),
+		dockerCache:      make(map[int]*docker.ContainerPort),
 		stack: []ViewState{{
 			Level:          LevelProcessList,
 			ProcessName:    "",
