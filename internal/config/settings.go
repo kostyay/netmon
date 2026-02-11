@@ -12,7 +12,8 @@ type Settings struct {
 	DNSEnabled       bool `yaml:"dnsEnabled"`
 	ServiceNames     bool `yaml:"serviceNames"`
 	HighlightChanges bool `yaml:"highlightChanges"`
-	Animations       bool `yaml:"animations"` // Enable UI animations (live pulse, spinners)
+	Animations       bool `yaml:"animations"`        // Enable UI animations (live pulse, spinners)
+	DockerContainers bool `yaml:"dockerContainers"`   // Show Docker containers as virtual rows
 }
 
 // DefaultSettings returns the default settings.
@@ -22,6 +23,7 @@ func DefaultSettings() *Settings {
 		ServiceNames:     true, // On by default (no overhead)
 		HighlightChanges: true, // On by default
 		Animations:       true, // On by default
+		DockerContainers: true, // On by default
 	}
 }
 

@@ -184,9 +184,11 @@ type Model struct {
 	animationFrame int  // current animation frame (for pulsing indicators)
 
 	// Docker container resolution
-	dockerResolver docker.Resolver               // resolves host ports to containers
-	dockerCache    map[int]*docker.ContainerPort // host port → container info
-	dockerView     bool                          // true when viewing Docker process connections
+	dockerResolver    docker.Resolver               // resolves host ports to containers
+	dockerCache       map[int]*docker.ContainerPort // host port → container info
+	dockerView        bool                          // true when viewing Docker process connections
+	dockerContainers  bool                          // show virtual container rows in process list
+	virtualContainers []model.VirtualContainer      // cached virtual container rows
 }
 
 // killTargetInfo holds info about the process to be killed.
@@ -197,6 +199,7 @@ type killTargetInfo struct {
 	Exe         string // executable path
 	Port        int    // optional, 0 if killing by PID only
 	Signal      string // signal to send (default SIGTERM)
+	ContainerID string // Docker container ID (non-empty → use docker stop/kill)
 }
 
 // NewModel creates a new Model with default settings.
@@ -214,6 +217,7 @@ func NewModel() Model {
 		animations:       config.CurrentSettings.Animations,
 		dockerResolver:   docker.NewResolver(),
 		dockerCache:      make(map[int]*docker.ContainerPort),
+		dockerContainers: config.CurrentSettings.DockerContainers,
 		stack: []ViewState{{
 			Level:          LevelProcessList,
 			ProcessName:    "",

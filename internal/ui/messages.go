@@ -37,8 +37,9 @@ type VersionCheckMsg struct {
 
 // DockerResolvedMsg contains Docker container resolution results.
 type DockerResolvedMsg struct {
-	Containers map[int]*docker.ContainerPort // host port → container info
-	Err        error
+	Containers        map[int]*docker.ContainerPort // host port → container info
+	VirtualContainers []model.VirtualContainer      // containers as virtual process rows
+	Err               error
 }
 
 // AnimationTickMsg is sent for UI animation updates (e.g., live indicator pulse).

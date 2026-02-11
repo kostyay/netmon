@@ -49,6 +49,12 @@ type PortMapping struct {
 	Protocol      string // "tcp" or "udp"
 }
 
+// VirtualContainer represents a Docker container as a virtual process row.
+type VirtualContainer struct {
+	Info         ContainerInfo
+	PortMappings []PortMapping
+}
+
 // FormatContainerColumn returns display string for the Container column.
 // Format: "name (image) hostPort→containerPort". Truncates to maxWidth runes with "…".
 func FormatContainerColumn(ci *ContainerInfo, pm *PortMapping, maxWidth int) string {

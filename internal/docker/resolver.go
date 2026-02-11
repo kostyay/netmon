@@ -10,9 +10,15 @@ import (
 	"github.com/kostyay/netmon/internal/model"
 )
 
+// ResolveResult holds both port mappings and virtual containers from a Docker query.
+type ResolveResult struct {
+	Ports      map[int]*ContainerPort
+	Containers []model.VirtualContainer
+}
+
 // Resolver resolves host ports to Docker container info.
 type Resolver interface {
-	Resolve(ctx context.Context) (map[int]*ContainerPort, error)
+	Resolve(ctx context.Context) (*ResolveResult, error)
 }
 
 // ContainerPort maps a host port to its container and internal port.
@@ -43,44 +49,60 @@ func NewResolver() Resolver {
 	}
 }
 
-// Resolve queries Docker for running containers and builds a host-port → container map.
-// Returns empty map (not error) if Docker is unavailable.
-func (r *dockerResolver) Resolve(ctx context.Context) (map[int]*ContainerPort, error) {
+// Resolve queries Docker for running containers and builds port mappings + virtual container rows.
+// Returns empty result (not error) if Docker is unavailable.
+func (r *dockerResolver) Resolve(ctx context.Context) (*ResolveResult, error) {
+	emptyResult := &ResolveResult{Ports: map[int]*ContainerPort{}}
+
 	cli, err := r.newClient()
 	if err != nil {
-		return map[int]*ContainerPort{}, nil // graceful degradation
+		return emptyResult, nil // graceful degradation
 	}
 	defer func() { _ = cli.Close() }()
 
 	containers, err := cli.ContainerList(ctx, container.ListOptions{})
 	if err != nil {
-		// Context cancellation is a real error
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		return map[int]*ContainerPort{}, nil // Docker unavailable
+		return emptyResult, nil // Docker unavailable
 	}
 
-	result := make(map[int]*ContainerPort)
+	portMap := make(map[int]*ContainerPort)
+	var vcs []model.VirtualContainer
+
 	for _, c := range containers {
 		ci := model.ContainerInfo{
 			Name:  cleanContainerName(c.Names),
 			Image: c.Image,
 			ID:    shortID(c.ID),
 		}
+
+		var mappings []model.PortMapping
 		for _, p := range c.Ports {
 			if p.PublicPort == 0 {
-				continue // no host binding
+				continue
 			}
-			result[int(p.PublicPort)] = &ContainerPort{
+			portMap[int(p.PublicPort)] = &ContainerPort{
 				Container:     ci,
 				HostPort:      int(p.PublicPort),
 				ContainerPort: int(p.PrivatePort),
 				Protocol:      p.Type,
 			}
+			mappings = append(mappings, model.PortMapping{
+				HostPort:      int(p.PublicPort),
+				ContainerPort: int(p.PrivatePort),
+				Protocol:      p.Type,
+			})
 		}
+
+		vcs = append(vcs, model.VirtualContainer{
+			Info:         ci,
+			PortMappings: mappings,
+		})
 	}
-	return result, nil
+
+	return &ResolveResult{Ports: portMap, Containers: vcs}, nil
 }
 
 // cleanContainerName strips the leading "/" from Docker container names.

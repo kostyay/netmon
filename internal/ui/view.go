@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kostyay/netmon/internal/config"
+	"github.com/kostyay/netmon/internal/docker"
 	"github.com/kostyay/netmon/internal/model"
 )
 
@@ -116,13 +117,9 @@ func (m Model) frozenHeaderHeight() int {
 	case LevelConnections:
 		// Process name (1) + [exe (1)] + stats line (1) + blank line (1) + table header (1)
 		lines := 4
-		if m.snapshot != nil {
-			for _, app := range m.snapshot.Applications {
-				if app.Name == view.ProcessName && app.Exe != "" {
-					lines = 5
-					break
-				}
-			}
+		selectedApp := m.findSelectedApp(view.ProcessName)
+		if selectedApp != nil && selectedApp.Exe != "" {
+			lines = 5
 		}
 		return lines
 	default:
@@ -159,14 +156,7 @@ func (m Model) renderFrozenHeader() string {
 		b.WriteString(m.renderProcessListHeader(widths))
 
 	case LevelConnections:
-		// Find the selected process
-		var selectedApp *model.Application
-		for i := range m.snapshot.Applications {
-			if m.snapshot.Applications[i].Name == view.ProcessName {
-				selectedApp = &m.snapshot.Applications[i]
-				break
-			}
-		}
+		selectedApp := m.findSelectedApp(view.ProcessName)
 		if selectedApp == nil {
 			return ""
 		}
@@ -233,7 +223,11 @@ func (m Model) View() string {
 	}
 	if m.killMode && m.killTarget != nil {
 		modalWidth := m.killModalWidth()
-		return m.overlayDangerModal(baseContent, m.renderKillModalContent(), "Kill Process", modalWidth)
+		title := "Kill Process"
+		if m.killTarget.ContainerID != "" {
+			title = "Stop Container"
+		}
+		return m.overlayDangerModal(baseContent, m.renderKillModalContent(), title, modalWidth)
 	}
 
 	return baseContent
@@ -503,6 +497,98 @@ func (m Model) filteredApps() []model.Application {
 	return result
 }
 
+// isVirtualContainerName returns true if the name is a virtual container row name.
+func isVirtualContainerName(name string) bool {
+	return strings.HasPrefix(name, "🐳 ")
+}
+
+// findVirtualContainer returns the VirtualContainer matching the display name, or nil.
+func (m Model) findVirtualContainer(displayName string) *model.VirtualContainer {
+	for i := range m.virtualContainers {
+		if containerDisplayName(m.virtualContainers[i]) == displayName {
+			return &m.virtualContainers[i]
+		}
+	}
+	return nil
+}
+
+// virtualContainerApp builds a synthetic Application for a virtual container.
+func (m Model) virtualContainerApp(name string) *model.Application {
+	vc := m.findVirtualContainer(name)
+	if vc == nil || m.snapshot == nil {
+		return nil
+	}
+	hostPorts := make(map[int]bool)
+	for _, pm := range vc.PortMappings {
+		hostPorts[pm.HostPort] = true
+	}
+	app := &model.Application{
+		Name: name,
+		Exe:  vc.Info.Image,
+	}
+	for _, a := range m.snapshot.Applications {
+		if !docker.IsDockerProcess(a.Name) {
+			continue
+		}
+		for _, conn := range a.Connections {
+			port := model.ExtractPort(conn.LocalAddr)
+			if port > 0 && hostPorts[port] {
+				app.Connections = append(app.Connections, conn)
+				switch conn.State {
+				case model.StateEstablished:
+					app.EstablishedCount++
+				case model.StateListen:
+					app.ListenCount++
+				}
+			}
+		}
+		app.PIDs = append(app.PIDs, a.PIDs...)
+	}
+	return app
+}
+
+// containerDisplayName returns the display name for a virtual container row.
+func containerDisplayName(vc model.VirtualContainer) string {
+	return "🐳 " + vc.Info.Name + " (" + vc.Info.Image + ")"
+}
+
+// findSelectedApp finds the application for the current connections view.
+func (m Model) findSelectedApp(processName string) *model.Application {
+	if isVirtualContainerName(processName) {
+		return m.virtualContainerApp(processName)
+	}
+	if m.snapshot == nil {
+		return nil
+	}
+	for i := range m.snapshot.Applications {
+		if m.snapshot.Applications[i].Name == processName {
+			return &m.snapshot.Applications[i]
+		}
+	}
+	return nil
+}
+
+// filteredVirtualContainers returns virtual containers matching the current filter.
+func (m Model) filteredVirtualContainers() []model.VirtualContainer {
+	if !m.dockerContainers || len(m.virtualContainers) == 0 {
+		return nil
+	}
+	filter := m.currentFilter()
+	if filter == "" {
+		return m.virtualContainers
+	}
+	filterLower := strings.ToLower(filter)
+	var result []model.VirtualContainer
+	for _, vc := range m.virtualContainers {
+		if strings.Contains(strings.ToLower(vc.Info.Name), filterLower) ||
+			strings.Contains(strings.ToLower(vc.Info.Image), filterLower) ||
+			strings.Contains(strings.ToLower(vc.Info.ID), filterLower) {
+			result = append(result, vc)
+		}
+	}
+	return result
+}
+
 // filteredConnections returns connections matching the current filter for a specific process.
 func (m Model) filteredConnections(conns []model.Connection) []model.Connection {
 	filter := m.currentFilter()
@@ -646,15 +732,7 @@ func (m Model) renderConnectionsList() string {
 		return ""
 	}
 
-	// Find the selected process
-	var selectedApp *model.Application
-	for i := range m.snapshot.Applications {
-		if m.snapshot.Applications[i].Name == view.ProcessName {
-			selectedApp = &m.snapshot.Applications[i]
-			break
-		}
-	}
-
+	selectedApp := m.findSelectedApp(view.ProcessName)
 	if selectedApp == nil {
 		return EmptyStyle().Render("Process not found")
 	}
@@ -884,6 +962,32 @@ func (m Model) renderProcessListData() string {
 		b.WriteString(renderRow(row, isSelected))
 	}
 
+	// Append virtual container rows
+	vcs := m.filteredVirtualContainers()
+	for i, vc := range vcs {
+		idx := len(apps) + i
+		isSelected := idx == cursorIdx
+		vcApp := m.virtualContainerApp(containerDisplayName(vc))
+		conns := 0
+		estab := 0
+		listen := 0
+		if vcApp != nil {
+			conns = len(vcApp.Connections)
+			estab = vcApp.EstablishedCount
+			listen = vcApp.ListenCount
+		}
+		row := fmt.Sprintf("%-*s %-*s %*d %*d %*d %*s %*s",
+			widths[0], truncateString(vc.Info.ID, widths[0]),
+			widths[1], truncateString(containerDisplayName(vc), widths[1]),
+			widths[2], conns,
+			widths[3], estab,
+			widths[4], listen,
+			widths[5], "—",
+			widths[6], "—",
+		)
+		b.WriteString(renderRow(row, isSelected))
+	}
+
 	return b.String()
 }
 
@@ -898,14 +1002,7 @@ func (m Model) renderConnectionsListData() string {
 		return ""
 	}
 
-	var selectedApp *model.Application
-	for i := range m.snapshot.Applications {
-		if m.snapshot.Applications[i].Name == view.ProcessName {
-			selectedApp = &m.snapshot.Applications[i]
-			break
-		}
-	}
-
+	selectedApp := m.findSelectedApp(view.ProcessName)
 	if selectedApp == nil {
 		return EmptyStyle().Render("Process not found")
 	}
@@ -1170,24 +1267,32 @@ func (m Model) renderKillModalContent() string {
 	var lines []string
 	lines = append(lines, "")
 
-	// Title and PID info
-	multiPID := len(m.killTarget.PIDs) > 1
-	if multiPID {
-		lines = append(lines, dangerStyle.Render(fmt.Sprintf("  Kill %d processes?", len(m.killTarget.PIDs))))
+	// Title and target info
+	if m.killTarget.ContainerID != "" {
+		lines = append(lines, dangerStyle.Render("  Stop this container?"))
+		lines = append(lines, "")
+		lines = append(lines, descStyle.Render(fmt.Sprintf("  Container: %s", m.killTarget.ProcessName)))
+		if m.killTarget.Exe != "" {
+			lines = append(lines, dimStyle.Render(fmt.Sprintf("  Image:     %s", m.killTarget.Exe)))
+		}
+		lines = append(lines, descStyle.Render(fmt.Sprintf("  ID:        %s", m.killTarget.ContainerID)))
 	} else {
-		lines = append(lines, dangerStyle.Render("  Kill this process?"))
-	}
-	lines = append(lines, "")
-
-	// Process info (shared for both cases)
-	lines = append(lines, descStyle.Render(fmt.Sprintf("  Process: %s", m.killTarget.ProcessName)))
-	if m.killTarget.Exe != "" {
-		lines = append(lines, dimStyle.Render(fmt.Sprintf("  Path:    %s", m.killTarget.Exe)))
-	}
-	if multiPID {
-		lines = append(lines, descStyle.Render(fmt.Sprintf("  PIDs:    %s", formatPIDList(m.killTarget.PIDs))))
-	} else {
-		lines = append(lines, descStyle.Render(fmt.Sprintf("  PID:     %d", m.killTarget.PID)))
+		multiPID := len(m.killTarget.PIDs) > 1
+		if multiPID {
+			lines = append(lines, dangerStyle.Render(fmt.Sprintf("  Kill %d processes?", len(m.killTarget.PIDs))))
+		} else {
+			lines = append(lines, dangerStyle.Render("  Kill this process?"))
+		}
+		lines = append(lines, "")
+		lines = append(lines, descStyle.Render(fmt.Sprintf("  Process: %s", m.killTarget.ProcessName)))
+		if m.killTarget.Exe != "" {
+			lines = append(lines, dimStyle.Render(fmt.Sprintf("  Path:    %s", m.killTarget.Exe)))
+		}
+		if multiPID {
+			lines = append(lines, descStyle.Render(fmt.Sprintf("  PIDs:    %s", formatPIDList(m.killTarget.PIDs))))
+		} else {
+			lines = append(lines, descStyle.Render(fmt.Sprintf("  PID:     %d", m.killTarget.PID)))
+		}
 	}
 
 	// Signal radio options
@@ -1292,6 +1397,7 @@ func (m Model) renderSettingsModalContent() string {
 		{"Service Names", m.serviceNames, "Show http/https instead of 80/443"},
 		{"Highlight Changes", m.highlightChanges, "Flash new/removed connections"},
 		{"Animations", m.animations, "Enable UI animations (pulse, spinners)"},
+		{"Docker Containers", m.dockerContainers, "Show containers as process rows"},
 	}
 
 	for i, s := range settings {

@@ -68,11 +68,11 @@ func TestResolve_RunningContainers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(result) != 3 {
-		t.Fatalf("expected 3 port mappings, got %d", len(result))
+	if len(result.Ports) != 3 {
+		t.Fatalf("expected 3 port mappings, got %d", len(result.Ports))
 	}
 
-	cp := result[8080]
+	cp := result.Ports[8080]
 	if cp == nil {
 		t.Fatal("expected mapping for port 8080")
 	}
@@ -89,12 +89,26 @@ func TestResolve_RunningContainers(t *testing.T) {
 		t.Errorf("HostPort = %d, want 8080", cp.HostPort)
 	}
 
-	cp6379 := result[6379]
+	cp6379 := result.Ports[6379]
 	if cp6379 == nil {
 		t.Fatal("expected mapping for port 6379")
 	}
 	if cp6379.Container.Name != "redis-cache" {
 		t.Errorf("Name = %q, want 'redis-cache'", cp6379.Container.Name)
+	}
+
+	// Verify virtual containers
+	if len(result.Containers) != 2 {
+		t.Fatalf("expected 2 virtual containers, got %d", len(result.Containers))
+	}
+	if result.Containers[0].Info.Name != "nginx-proxy" {
+		t.Errorf("Container[0].Name = %q, want 'nginx-proxy'", result.Containers[0].Info.Name)
+	}
+	if len(result.Containers[0].PortMappings) != 2 {
+		t.Errorf("nginx-proxy should have 2 port mappings, got %d", len(result.Containers[0].PortMappings))
+	}
+	if result.Containers[1].Info.Name != "redis-cache" {
+		t.Errorf("Container[1].Name = %q, want 'redis-cache'", result.Containers[1].Info.Name)
 	}
 }
 
@@ -105,8 +119,11 @@ func TestResolve_NoContainers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(result) != 0 {
-		t.Errorf("expected empty map, got %d entries", len(result))
+	if len(result.Ports) != 0 {
+		t.Errorf("expected empty map, got %d entries", len(result.Ports))
+	}
+	if len(result.Containers) != 0 {
+		t.Errorf("expected no virtual containers, got %d", len(result.Containers))
 	}
 }
 
@@ -126,8 +143,12 @@ func TestResolve_ContainerWithoutPorts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(result) != 0 {
-		t.Errorf("expected empty map for container without ports, got %d", len(result))
+	if len(result.Ports) != 0 {
+		t.Errorf("expected empty map for container without ports, got %d", len(result.Ports))
+	}
+	// Container still appears as virtual row (even without port mappings)
+	if len(result.Containers) != 1 {
+		t.Errorf("expected 1 virtual container, got %d", len(result.Containers))
 	}
 }
 
@@ -149,8 +170,8 @@ func TestResolve_ContainerWithUnpublishedPort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(result) != 0 {
-		t.Errorf("expected empty map for unpublished port, got %d", len(result))
+	if len(result.Ports) != 0 {
+		t.Errorf("expected empty map for unpublished port, got %d", len(result.Ports))
 	}
 }
 
@@ -174,16 +195,23 @@ func TestResolve_MultiplePortsOneContainer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(result) != 3 {
-		t.Fatalf("expected 3 mappings, got %d", len(result))
+	if len(result.Ports) != 3 {
+		t.Fatalf("expected 3 mappings, got %d", len(result.Ports))
 	}
 	for _, port := range []int{80, 443, 8080} {
-		if result[port] == nil {
+		if result.Ports[port] == nil {
 			t.Errorf("missing mapping for port %d", port)
 		}
-		if result[port] != nil && result[port].Container.Name != "web" {
-			t.Errorf("port %d: Name = %q, want 'web'", port, result[port].Container.Name)
+		if result.Ports[port] != nil && result.Ports[port].Container.Name != "web" {
+			t.Errorf("port %d: Name = %q, want 'web'", port, result.Ports[port].Container.Name)
 		}
+	}
+	// Single container → 1 virtual container with 3 mappings
+	if len(result.Containers) != 1 {
+		t.Fatalf("expected 1 virtual container, got %d", len(result.Containers))
+	}
+	if len(result.Containers[0].PortMappings) != 3 {
+		t.Errorf("expected 3 port mappings, got %d", len(result.Containers[0].PortMappings))
 	}
 }
 
@@ -210,7 +238,7 @@ func TestResolve_OverlappingPorts(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// Last-write-wins
-	cp := result[8080]
+	cp := result.Ports[8080]
 	if cp == nil {
 		t.Fatal("expected mapping for port 8080")
 	}
@@ -226,8 +254,8 @@ func TestResolve_DockerUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected nil error for unavailable Docker, got: %v", err)
 	}
-	if len(result) != 0 {
-		t.Errorf("expected empty map, got %d entries", len(result))
+	if len(result.Ports) != 0 {
+		t.Errorf("expected empty map, got %d entries", len(result.Ports))
 	}
 }
 
@@ -237,8 +265,8 @@ func TestResolve_ClientCreationFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected nil error for client creation failure, got: %v", err)
 	}
-	if len(result) != 0 {
-		t.Errorf("expected empty map, got %d entries", len(result))
+	if len(result.Ports) != 0 {
+		t.Errorf("expected empty map, got %d entries", len(result.Ports))
 	}
 }
 

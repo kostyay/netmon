@@ -29,6 +29,9 @@ func (m Model) Init() tea.Cmd {
 	if m.animations {
 		cmds = append(cmds, m.animationTickCmd())
 	}
+	if m.dockerContainers {
+		cmds = append(cmds, m.fetchDockerContainers())
+	}
 	return tea.Batch(cmds...)
 }
 
@@ -135,37 +138,41 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if matchKey(key, KeyDown, KeyDownAlt) {
-				maxCursor := 3 // Number of settings - 1
+				maxCursor := 4 // Number of settings - 1
 				if m.settingsCursor < maxCursor {
 					m.settingsCursor++
 				}
 				return m, nil
 			}
 			if matchKey(key, KeyEnter, KeySpace) {
-				// Toggle the selected setting
+				var cmd tea.Cmd
 				switch m.settingsCursor {
 				case 0: // DNS Resolution
 					m.dnsEnabled = !m.dnsEnabled
 					config.CurrentSettings.DNSEnabled = m.dnsEnabled
-					_ = config.SaveSettings(config.CurrentSettings)
 				case 1: // Service Names
 					m.serviceNames = !m.serviceNames
 					config.CurrentSettings.ServiceNames = m.serviceNames
-					_ = config.SaveSettings(config.CurrentSettings)
 				case 2: // Highlight Changes
 					m.highlightChanges = !m.highlightChanges
 					config.CurrentSettings.HighlightChanges = m.highlightChanges
-					_ = config.SaveSettings(config.CurrentSettings)
 				case 3: // Animations
 					m.animations = !m.animations
 					config.CurrentSettings.Animations = m.animations
-					_ = config.SaveSettings(config.CurrentSettings)
-					// Start animation tick if enabled
 					if m.animations {
-						return m, m.animationTickCmd()
+						cmd = m.animationTickCmd()
+					}
+				case 4: // Docker Containers
+					m.dockerContainers = !m.dockerContainers
+					config.CurrentSettings.DockerContainers = m.dockerContainers
+					if m.dockerContainers {
+						cmd = m.fetchDockerContainers()
+					} else {
+						m.virtualContainers = nil
 					}
 				}
-				return m, nil
+				_ = config.SaveSettings(config.CurrentSettings)
+				return m, cmd
 			}
 			return m, nil // Ignore other keys in settings mode
 		}
@@ -277,10 +284,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Not in sort mode - drill down on process list
 			if view.Level == LevelProcessList {
 				apps := m.sortProcessList(m.filteredApps())
-				// Use cursor directly for selection
+				vcs := m.filteredVirtualContainers()
 				if view.Cursor >= 0 && view.Cursor < len(apps) {
 					app := apps[view.Cursor]
-					// Clear filter when drilling down (different search context)
 					m.activeFilter = ""
 					m.searchQuery = ""
 					m.dockerView = docker.IsDockerProcess(app.Name)
@@ -288,15 +294,31 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						Level:          LevelConnections,
 						ProcessName:    app.Name,
 						Cursor:         0,
-						SelectedID:     model.SelectionID{}, // Start fresh in new view
+						SelectedID:     model.SelectionID{},
 						SortColumn:     SortLocal,
 						SortAscending:  true,
 						SelectedColumn: SortLocal,
 					})
-					// Fire Docker resolution if drilling into Docker process
 					if m.dockerView {
 						return m, m.fetchDockerContainers()
 					}
+				} else if vcIdx := view.Cursor - len(apps); vcIdx >= 0 && vcIdx < len(vcs) {
+					// Drill into virtual container row
+					vc := vcs[vcIdx]
+					m.activeFilter = ""
+					m.searchQuery = ""
+					m.dockerView = true
+					vcName := containerDisplayName(vc)
+					m.PushView(ViewState{
+						Level:          LevelConnections,
+						ProcessName:    vcName,
+						Cursor:         0,
+						SelectedID:     model.SelectionID{},
+						SortColumn:     SortLocal,
+						SortAscending:  true,
+						SelectedColumn: SortLocal,
+					})
+					return m, m.fetchDockerContainers()
 				}
 			}
 			return m, nil
@@ -450,8 +472,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.fetchData(),
 			m.fetchNetIO(),
 		}
-		// Refresh Docker container info when in Docker view
-		if m.dockerView {
+		// Refresh Docker container info when in Docker view or containers enabled
+		if m.dockerView || m.dockerContainers {
 			cmds = append(cmds, m.fetchDockerContainers())
 		}
 		return m, tea.Batch(cmds...)
@@ -515,6 +537,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil // Silently ignore Docker errors
 		}
 		m.dockerCache = msg.Containers
+		m.virtualContainers = msg.VirtualContainers
 		return m, nil
 
 	case VersionCheckMsg:
@@ -575,8 +598,15 @@ func (m Model) fetchDockerContainers() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		containers, err := resolver.Resolve(ctx)
-		return DockerResolvedMsg{Containers: containers, Err: err}
+		result, err := resolver.Resolve(ctx)
+		if result == nil {
+			return DockerResolvedMsg{Err: err}
+		}
+		return DockerResolvedMsg{
+			Containers:        result.Ports,
+			VirtualContainers: result.Containers,
+			Err:               err,
+		}
 	}
 }
 
@@ -653,16 +683,15 @@ func (m Model) maxCursorForLevel(level ViewLevel) int {
 	}
 	switch level {
 	case LevelProcessList:
-		return len(m.snapshot.Applications)
+		return len(m.snapshot.Applications) + len(m.filteredVirtualContainers())
 	case LevelConnections:
 		view := m.CurrentView()
 		if view == nil {
 			return 0
 		}
-		for _, app := range m.snapshot.Applications {
-			if app.Name == view.ProcessName {
-				return len(app.Connections)
-			}
+		selectedApp := m.findSelectedApp(view.ProcessName)
+		if selectedApp != nil {
+			return len(selectedApp.Connections)
 		}
 		return 0
 	case LevelAllConnections:
@@ -734,12 +763,11 @@ func (m *Model) filteredCount() int {
 	view := m.CurrentView()
 	switch view.Level {
 	case LevelProcessList:
-		return len(m.filteredApps())
+		return len(m.filteredApps()) + len(m.filteredVirtualContainers())
 	case LevelConnections:
-		for _, app := range m.snapshot.Applications {
-			if app.Name == view.ProcessName {
-				return len(m.filteredConnections(app.Connections))
-			}
+		selectedApp := m.findSelectedApp(view.ProcessName)
+		if selectedApp != nil {
+			return len(m.filteredConnections(selectedApp.Connections))
 		}
 		return 0
 	case LevelAllConnections:
