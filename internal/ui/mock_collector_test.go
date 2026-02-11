@@ -39,15 +39,18 @@ func newMockNetIOCollector(stats map[int32]*model.NetIOStats) *mockNetIOCollecto
 
 // mockDockerResolver is a test double for docker.Resolver.
 type mockDockerResolver struct {
-	containers map[int]*docker.ContainerPort
-	err        error
+	result *docker.ResolveResult
+	err    error
 }
 
-func (m *mockDockerResolver) Resolve(ctx context.Context) (map[int]*docker.ContainerPort, error) {
-	return m.containers, m.err
+func (m *mockDockerResolver) Resolve(ctx context.Context) (*docker.ResolveResult, error) {
+	if m.result == nil {
+		return &docker.ResolveResult{Ports: map[int]*docker.ContainerPort{}}, m.err
+	}
+	return m.result, m.err
 }
 
 // newMockDockerResolver creates a mockDockerResolver with the given containers.
 func newMockDockerResolver(containers map[int]*docker.ContainerPort) *mockDockerResolver {
-	return &mockDockerResolver{containers: containers}
+	return &mockDockerResolver{result: &docker.ResolveResult{Ports: containers}}
 }

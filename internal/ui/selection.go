@@ -34,17 +34,14 @@ func (m Model) findConnectionIndex(key *model.ConnectionKey) int {
 
 	switch view.Level {
 	case LevelConnections:
-		// Find the process and get its connections
-		for i := range m.snapshot.Applications {
-			if m.snapshot.Applications[i].Name == view.ProcessName {
-				conns := m.filteredConnections(m.snapshot.Applications[i].Connections)
-				conns = m.sortConnectionsForView(conns)
-				for j, conn := range conns {
-					if m.connectionMatchesKey(conn, key) {
-						return j
-					}
+		selectedApp := m.findSelectedApp(view.ProcessName)
+		if selectedApp != nil {
+			conns := m.filteredConnections(selectedApp.Connections)
+			conns = m.sortConnectionsForView(conns)
+			for j, conn := range conns {
+				if m.connectionMatchesKey(conn, key) {
+					return j
 				}
-				break
 			}
 		}
 	case LevelAllConnections:
@@ -127,14 +124,12 @@ func (m *Model) validateSelection() {
 	switch view.Level {
 	case LevelProcessList:
 		apps := m.filteredApps()
-		itemCount = len(apps)
+		itemCount = len(apps) + len(m.filteredVirtualContainers())
 	case LevelConnections:
-		for i := range m.snapshot.Applications {
-			if m.snapshot.Applications[i].Name == view.ProcessName {
-				conns := m.filteredConnections(m.snapshot.Applications[i].Connections)
-				itemCount = len(conns)
-				break
-			}
+		selectedApp := m.findSelectedApp(view.ProcessName)
+		if selectedApp != nil {
+			conns := m.filteredConnections(selectedApp.Connections)
+			itemCount = len(conns)
 		}
 	case LevelAllConnections:
 		itemCount = len(m.filteredAllConnections())
@@ -192,18 +187,22 @@ func (m *Model) updateSelectedIDFromCursor() {
 		apps = m.sortProcessList(apps)
 		if view.Cursor >= 0 && view.Cursor < len(apps) {
 			view.SelectedID = model.SelectionIDFromProcess(apps[view.Cursor].Name)
+		} else {
+			vcs := m.filteredVirtualContainers()
+			vcIdx := view.Cursor - len(apps)
+			if vcIdx >= 0 && vcIdx < len(vcs) {
+				view.SelectedID = model.SelectionIDFromProcess(containerDisplayName(vcs[vcIdx]))
+			}
 		}
 	case LevelConnections:
-		for i := range m.snapshot.Applications {
-			if m.snapshot.Applications[i].Name == view.ProcessName {
-				conns := m.filteredConnections(m.snapshot.Applications[i].Connections)
-				conns = m.sortConnectionsForView(conns)
-				if view.Cursor >= 0 && view.Cursor < len(conns) {
-					conn := conns[view.Cursor]
-					processName := m.getProcessNameByPID(conn.PID)
-					view.SelectedID = model.SelectionIDFromConnection(processName, conn.LocalAddr, conn.RemoteAddr)
-				}
-				break
+		selectedApp := m.findSelectedApp(view.ProcessName)
+		if selectedApp != nil {
+			conns := m.filteredConnections(selectedApp.Connections)
+			conns = m.sortConnectionsForView(conns)
+			if view.Cursor >= 0 && view.Cursor < len(conns) {
+				conn := conns[view.Cursor]
+				processName := m.getProcessNameByPID(conn.PID)
+				view.SelectedID = model.SelectionIDFromConnection(processName, conn.LocalAddr, conn.RemoteAddr)
 			}
 		}
 	case LevelAllConnections:
