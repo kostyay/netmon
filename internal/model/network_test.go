@@ -1,6 +1,7 @@
 package model
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -388,5 +389,136 @@ func TestConnectionStateConstants(t *testing.T) {
 	}
 	if StateNone != "-" {
 		t.Errorf("StateNone = %q, want '-'", StateNone)
+	}
+}
+
+// Tests for ContainerInfo and PortMapping
+
+func TestContainerInfo_Struct(t *testing.T) {
+	ci := ContainerInfo{
+		Name:  "nginx-proxy",
+		Image: "nginx:latest",
+		ID:    "abc123",
+	}
+	if ci.Name != "nginx-proxy" {
+		t.Errorf("Name = %q, want 'nginx-proxy'", ci.Name)
+	}
+	if ci.Image != "nginx:latest" {
+		t.Errorf("Image = %q, want 'nginx:latest'", ci.Image)
+	}
+	if ci.ID != "abc123" {
+		t.Errorf("ID = %q, want 'abc123'", ci.ID)
+	}
+}
+
+func TestPortMapping_Struct(t *testing.T) {
+	pm := PortMapping{
+		HostPort:      8080,
+		ContainerPort: 80,
+		Protocol:      "tcp",
+	}
+	if pm.HostPort != 8080 {
+		t.Errorf("HostPort = %d, want 8080", pm.HostPort)
+	}
+	if pm.ContainerPort != 80 {
+		t.Errorf("ContainerPort = %d, want 80", pm.ContainerPort)
+	}
+	if pm.Protocol != "tcp" {
+		t.Errorf("Protocol = %q, want 'tcp'", pm.Protocol)
+	}
+}
+
+func TestConnection_WithContainer(t *testing.T) {
+	conn := Connection{
+		PID:       100,
+		Protocol:  ProtocolTCP,
+		LocalAddr: "0.0.0.0:8080",
+		State:     StateListen,
+		Container: &ContainerInfo{
+			Name:  "web",
+			Image: "nginx:latest",
+			ID:    "abc123",
+		},
+		PortMapping: &PortMapping{
+			HostPort:      8080,
+			ContainerPort: 80,
+			Protocol:      "tcp",
+		},
+	}
+	if conn.Container == nil {
+		t.Fatal("Container should not be nil")
+	}
+	if conn.Container.Name != "web" {
+		t.Errorf("Container.Name = %q, want 'web'", conn.Container.Name)
+	}
+	if conn.PortMapping == nil {
+		t.Fatal("PortMapping should not be nil")
+	}
+	if conn.PortMapping.ContainerPort != 80 {
+		t.Errorf("PortMapping.ContainerPort = %d, want 80", conn.PortMapping.ContainerPort)
+	}
+}
+
+func TestConnection_WithoutContainer(t *testing.T) {
+	conn := Connection{
+		PID:       200,
+		Protocol:  ProtocolTCP,
+		LocalAddr: "127.0.0.1:443",
+		State:     StateEstablished,
+	}
+	if conn.Container != nil {
+		t.Error("Container should be nil for non-Docker connection")
+	}
+	if conn.PortMapping != nil {
+		t.Error("PortMapping should be nil for non-Docker connection")
+	}
+}
+
+func TestFormatContainerColumn_WithMapping(t *testing.T) {
+	ci := &ContainerInfo{Name: "nginx", Image: "nginx:latest", ID: "abc"}
+	pm := &PortMapping{HostPort: 8080, ContainerPort: 80, Protocol: "tcp"}
+	got := FormatContainerColumn(ci, pm, 0)
+	want := "nginx (nginx:latest) 8080→80"
+	if got != want {
+		t.Errorf("FormatContainerColumn = %q, want %q", got, want)
+	}
+}
+
+func TestFormatContainerColumn_WithoutMapping(t *testing.T) {
+	ci := &ContainerInfo{Name: "redis", Image: "redis:7", ID: "def"}
+	got := FormatContainerColumn(ci, nil, 0)
+	want := "redis (redis:7)"
+	if got != want {
+		t.Errorf("FormatContainerColumn = %q, want %q", got, want)
+	}
+}
+
+func TestFormatContainerColumn_NilContainer(t *testing.T) {
+	got := FormatContainerColumn(nil, nil, 0)
+	if got != "" {
+		t.Errorf("FormatContainerColumn(nil) = %q, want empty", got)
+	}
+}
+
+func TestFormatContainerColumn_Truncation(t *testing.T) {
+	ci := &ContainerInfo{Name: "very-long-container-name", Image: "my-registry.io/org/image:v1.2.3", ID: "abc"}
+	pm := &PortMapping{HostPort: 8080, ContainerPort: 80, Protocol: "tcp"}
+	got := FormatContainerColumn(ci, pm, 20)
+	runes := []rune(got)
+	if len(runes) > 20 {
+		t.Errorf("rune len = %d, want <= 20", len(runes))
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Errorf("should end with ellipsis, got %q", got)
+	}
+}
+
+func TestFormatContainerColumn_NoTruncationNeeded(t *testing.T) {
+	ci := &ContainerInfo{Name: "web", Image: "nginx", ID: "a"}
+	pm := &PortMapping{HostPort: 80, ContainerPort: 80, Protocol: "tcp"}
+	got := FormatContainerColumn(ci, pm, 50)
+	want := "web (nginx) 80→80"
+	if got != want {
+		t.Errorf("FormatContainerColumn = %q, want %q", got, want)
 	}
 }

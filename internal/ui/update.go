@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/kostyay/netmon/internal/config"
 	"github.com/kostyay/netmon/internal/dns"
+	"github.com/kostyay/netmon/internal/docker"
 	"github.com/kostyay/netmon/internal/model"
 	"github.com/kostyay/netmon/internal/release"
 )
@@ -282,6 +283,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Clear filter when drilling down (different search context)
 					m.activeFilter = ""
 					m.searchQuery = ""
+					m.dockerView = docker.IsDockerProcess(app.Name)
 					m.PushView(ViewState{
 						Level:          LevelConnections,
 						ProcessName:    app.Name,
@@ -291,6 +293,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						SortAscending:  true,
 						SelectedColumn: SortLocal,
 					})
+					// Fire Docker resolution if drilling into Docker process
+					if m.dockerView {
+						return m, m.fetchDockerContainers()
+					}
 				}
 			}
 			return m, nil
@@ -305,6 +311,7 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// Pop view (go back)
 			m.PopView()
+			m.dockerView = false
 			return m, nil
 		}
 
@@ -438,11 +445,16 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pruneExpiredChanges(3 * time.Second)
 
 		// Schedule next tick and fetch new data
-		return m, tea.Batch(
+		cmds := []tea.Cmd{
 			m.tickCmd(),
 			m.fetchData(),
 			m.fetchNetIO(),
-		)
+		}
+		// Refresh Docker container info when in Docker view
+		if m.dockerView {
+			cmds = append(cmds, m.fetchDockerContainers())
+		}
+		return m, tea.Batch(cmds...)
 
 	case DataMsg:
 		if msg.Err != nil {
@@ -498,6 +510,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dnsCache[msg.IP] = msg.Hostname
 		return m, nil
 
+	case DockerResolvedMsg:
+		if msg.Err != nil {
+			return m, nil // Silently ignore Docker errors
+		}
+		m.dockerCache = msg.Containers
+		return m, nil
+
 	case VersionCheckMsg:
 		if msg.Err == nil && msg.LatestVersion != "" {
 			m.updateAvailable = msg.LatestVersion
@@ -545,6 +564,19 @@ func (m Model) fetchNetIO() tea.Cmd {
 
 		stats, err := m.netIOCollector.Collect(ctx)
 		return NetIOMsg{Stats: stats, Err: err}
+	}
+}
+
+func (m Model) fetchDockerContainers() tea.Cmd {
+	if m.dockerResolver == nil {
+		return nil
+	}
+	resolver := m.dockerResolver
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		containers, err := resolver.Resolve(ctx)
+		return DockerResolvedMsg{Containers: containers, Err: err}
 	}
 }
 
@@ -647,7 +679,11 @@ func (m Model) columnsForLevel(level ViewLevel) []SortColumn {
 	case LevelProcessList:
 		cols = processListColumns()
 	case LevelConnections:
-		cols = connectionsColumns()
+		if m.dockerView {
+			cols = dockerConnectionsColumns()
+		} else {
+			cols = connectionsColumns()
+		}
 	case LevelAllConnections:
 		cols = allConnectionsColumns()
 	default:

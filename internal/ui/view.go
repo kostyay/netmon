@@ -192,7 +192,7 @@ func (m Model) renderFrozenHeader() string {
 		b.WriteString("\n")
 
 		// Table header
-		columns := connectionsColumns()
+		columns := m.activeConnectionsColumns()
 		widths := calculateColumnWidths(columns, m.contentWidth())
 		b.WriteString(m.renderConnectionsHeader(widths))
 
@@ -695,7 +695,7 @@ func (m Model) renderConnectionsList() string {
 
 	// === CONNECTIONS TABLE ===
 	// Calculate column widths
-	columns := connectionsColumns()
+	columns := m.activeConnectionsColumns()
 	widths := calculateColumnWidths(columns, m.contentWidth())
 
 	// Header
@@ -715,12 +715,24 @@ func (m Model) renderConnectionsList() string {
 		proto := string(conn.Protocol)
 		remoteAddr := formatRemoteAddr(conn.RemoteAddr, proto, m.dnsCache, m.serviceNames)
 		localAddr := formatAddr(conn.LocalAddr, proto, m.serviceNames)
-		row := fmt.Sprintf("%-*s %-*s %-*s %-*s",
-			widths[0], conn.Protocol,
-			widths[1], truncateAddr(localAddr, widths[1]),
-			widths[2], truncateAddr(remoteAddr, widths[2]),
-			widths[3], conn.State,
-		)
+		var row string
+		if m.dockerView {
+			containerCol := containerColumnValue(conn, m.dockerCache, widths[4])
+			row = fmt.Sprintf("%-*s %-*s %-*s %-*s %-*s",
+				widths[0], conn.Protocol,
+				widths[1], truncateAddr(localAddr, widths[1]),
+				widths[2], truncateAddr(remoteAddr, widths[2]),
+				widths[3], conn.State,
+				widths[4], containerCol,
+			)
+		} else {
+			row = fmt.Sprintf("%-*s %-*s %-*s %-*s",
+				widths[0], conn.Protocol,
+				widths[1], truncateAddr(localAddr, widths[1]),
+				widths[2], truncateAddr(remoteAddr, widths[2]),
+				widths[3], conn.State,
+			)
+		}
 
 		change := m.GetChange(conn)
 		b.WriteString(renderRowWithHighlight(row, isSelected, change))
@@ -735,8 +747,16 @@ func (m Model) renderConnectionsHeader(widths []int) string {
 	if view == nil {
 		return ""
 	}
-	columns := connectionsColumns()
+	columns := m.activeConnectionsColumns()
 	return renderTableHeader(columns, widths, view.SelectedColumn, view.SortColumn, view.SortAscending, true)
+}
+
+// activeConnectionsColumns returns the right column set for the current connections view.
+func (m Model) activeConnectionsColumns() []columnDef {
+	if m.dockerView {
+		return dockerConnectionsColumns()
+	}
+	return connectionsColumns()
 }
 
 // connectionWithProcess holds a connection along with its process name for the all-connections view.
@@ -900,7 +920,7 @@ func (m Model) renderConnectionsListData() string {
 	}
 
 	var b strings.Builder
-	columns := connectionsColumns()
+	columns := m.activeConnectionsColumns()
 	widths := calculateColumnWidths(columns, m.contentWidth())
 	conns = m.sortConnectionsForView(conns)
 	cursorIdx := view.Cursor
@@ -910,12 +930,24 @@ func (m Model) renderConnectionsListData() string {
 		proto := string(conn.Protocol)
 		remoteAddr := formatRemoteAddr(conn.RemoteAddr, proto, m.dnsCache, m.serviceNames)
 		localAddr := formatAddr(conn.LocalAddr, proto, m.serviceNames)
-		row := fmt.Sprintf("%-*s %-*s %-*s %-*s",
-			widths[0], conn.Protocol,
-			widths[1], truncateAddr(localAddr, widths[1]),
-			widths[2], truncateAddr(remoteAddr, widths[2]),
-			widths[3], conn.State,
-		)
+		var row string
+		if m.dockerView {
+			containerCol := containerColumnValue(conn, m.dockerCache, widths[4])
+			row = fmt.Sprintf("%-*s %-*s %-*s %-*s %-*s",
+				widths[0], conn.Protocol,
+				widths[1], truncateAddr(localAddr, widths[1]),
+				widths[2], truncateAddr(remoteAddr, widths[2]),
+				widths[3], conn.State,
+				widths[4], containerCol,
+			)
+		} else {
+			row = fmt.Sprintf("%-*s %-*s %-*s %-*s",
+				widths[0], conn.Protocol,
+				widths[1], truncateAddr(localAddr, widths[1]),
+				widths[2], truncateAddr(remoteAddr, widths[2]),
+				widths[3], conn.State,
+			)
+		}
 		change := m.GetChange(conn)
 		b.WriteString(renderRowWithHighlight(row, isSelected, change))
 	}
